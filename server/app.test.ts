@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import test from 'node:test';
 import pg from 'pg';
 import { buildApp } from './app.js';
-import type { Note, Project, User } from '../shared/types.js';
+import type { Note, NoteSearchResponse, Project, User } from '../shared/types.js';
 
 // Run against the migrated local database; every fixture is rolled back.
 test('Bartleby API with real PostgreSQL', async (t) => {
@@ -259,6 +259,69 @@ test('Bartleby API with real PostgreSQL', async (t) => {
           assert.equal((await request({ method: 'POST', url: path, payload: { targetProjectId: source.id } })).statusCode, 400);
         }
         assert.deepEqual(await snapshot(), before);
+      });
+    });
+
+    await t.test('searches saved notes across the current user projects', async (t) => {
+      const searchUser = await createUser('Search test owner');
+      const searchPath = `/api/users/${searchUser.id}/notes/search`;
+      const first = (await db.query<{ id: string }>('INSERT INTO projects (user_id, name) VALUES ($1, $2) RETURNING id', [searchUser.id, 'Field notes'])).rows[0]!;
+      const second = (await db.query<{ id: string }>('INSERT INTO projects (user_id, name) VALUES ($1, $2) RETURNING id', [searchUser.id, 'Reading room'])).rows[0]!;
+      const foreign = (await db.query<{ id: string }>('INSERT INTO projects (user_id, name) VALUES ($1, $2) RETURNING id', [other.id, 'Another user'])).rows[0]!;
+      const insert = async (projectId: string, title: string, body: string, createdAt: string) => (await db.query<{ id: string }>(
+        'INSERT INTO notes (project_id, title, body, created_at) VALUES ($1, $2, $3, $4) RETURNING id', [projectId, title, body, createdAt],
+      )).rows[0]!;
+      const titleMatch = await insert(first.id, 'Needle in a notebook', 'A quiet thought.', '2020-01-01');
+      const bodyMatch = await insert(second.id, '', `${'An ordinary sentence. '.repeat(30)}The NEEDLE is here.`, '2020-01-02');
+      await insert(first.id, 'Unrelated', 'A thought about the sea.', '2020-01-03');
+      await insert(foreign.id, 'Needle from someone else', 'NEEDLE in another user project.', '2020-01-04');
+      const literal = await insert(second.id, '100% _done! \\ a quote: \'', 'Literal punctuation.', '2020-01-05');
+      const searchFor = async (query: string) => {
+        const response = await request({ url: `${searchPath}?q=${encodeURIComponent(query)}` });
+        assert.equal(response.statusCode, 200, response.body);
+        return response.json<NoteSearchResponse>();
+      };
+
+      await t.test('matches titles and full bodies case-insensitively with project names and useful excerpts', async () => {
+        const response = await searchFor('  nEeDlE  ');
+        assert.deepEqual(response.notes.map(({ id }) => id), [bodyMatch.id, titleMatch.id]);
+        assert.deepEqual(response.notes.map(({ projectId, projectName, title }) => ({ projectId, projectName, title })), [
+          { projectId: second.id, projectName: 'Reading room', title: '' },
+          { projectId: first.id, projectName: 'Field notes', title: 'Needle in a notebook' },
+        ]);
+        assert.match(response.notes[0]!.excerpt, /^….*The NEEDLE is here\.$/);
+        assert.ok(response.notes[0]!.excerpt.length <= 242);
+        assert.equal(response.notes[1]!.excerpt, 'A quiet thought.');
+        assert.equal(response.hasMore, false);
+        assert.deepEqual(await searchFor('nothing-matches-this-phrase'), { notes: [], hasMore: false });
+      });
+
+      await t.test('treats punctuation and SQL wildcards literally', async () => {
+        for (const query of ['%', '_', '!', '\\', "'"]) {
+          assert.deepEqual((await searchFor(query)).notes.map(({ id }) => id), [literal.id]);
+        }
+        assert.deepEqual(await searchFor("' OR 1=1 --"), { notes: [], hasMore: false });
+      });
+
+      await t.test('validates searches and returns an empty result for a user without notes', async () => {
+        const empty = await createUser('Empty search test user');
+        assert.deepEqual((await request({ url: `/api/users/${empty.id}/notes/search?q=needle` })).json(), { notes: [], hasMore: false });
+        for (const suffix of ['', '?q=', '?q=%20%09', `?q=${'x'.repeat(201)}`, '?q=one&q=two', '?q=needle&userId=another-user']) {
+          assert.equal((await request({ url: `${searchPath}${suffix}` })).statusCode, 400, suffix);
+        }
+        assert.equal((await request({ url: '/api/users/not-a-uuid/notes/search?q=needle' })).statusCode, 400);
+        assert.equal((await request({ url: `/api/users/${randomUUID()}/notes/search?q=needle` })).statusCode, 404);
+      });
+
+      await t.test('bounds broad searches and keeps the newest matches first', async () => {
+        await db.query(`INSERT INTO notes (project_id, title, body, created_at)
+          SELECT $1, 'Search batch ' || value, 'A batch note.', '2022-01-01'::timestamptz + value * interval '1 second'
+          FROM generate_series(1, 51) AS value`, [first.id]);
+        const response = await searchFor('Search batch');
+        assert.equal(response.hasMore, true);
+        assert.equal(response.notes.length, 50);
+        assert.equal(response.notes[0]!.title, 'Search batch 51');
+        assert.equal(response.notes[49]!.title, 'Search batch 2');
       });
     });
 

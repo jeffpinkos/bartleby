@@ -30,6 +30,105 @@ const test = base.extend<{ userName: string }>({
   },
 });
 
+test('search titles and bodies, open the matching note, and refresh results after editing', async ({ page, userName }) => {
+  const browserErrors: string[] = [];
+  page.on('pageerror', (error) => browserErrors.push(error.message));
+  page.on('console', (message) => { if (message.type() === 'error') browserErrors.push(message.text()); });
+  await page.goto('/');
+  await page.getByPlaceholder('Your name', { exact: true }).fill(userName);
+  await page.getByRole('button', { name: 'Create user', exact: true }).click();
+  await page.getByLabel('Project name', { exact: true }).fill('Field notes');
+  await page.getByRole('button', { name: 'Create project', exact: true }).click();
+
+  const composer = page.getByRole('form', { name: 'New note', exact: true });
+  await composer.getByLabel('Title (optional)', { exact: true }).fill('A lighthouse idea');
+  await composer.getByLabel('What’s on your mind?', { exact: true }).fill('A small building beside the sea.');
+  await composer.getByRole('button', { name: 'Add note', exact: true }).click();
+  await page.getByRole('button', { name: 'New project', exact: true }).click();
+  await page.getByLabel('Project name', { exact: true }).fill('Reading room');
+  await page.getByRole('button', { name: 'Create project', exact: true }).click();
+  const longBody = `${'An ordinary sentence. '.repeat(30)}The LIGHTHOUSE appears near the end.\n  Keep this indentation.`;
+  await composer.getByLabel('What’s on your mind?', { exact: true }).fill(longBody);
+  await composer.getByRole('button', { name: 'Add note', exact: true }).click();
+  await composer.getByLabel('Title (optional)', { exact: true }).fill('An unrelated note');
+  await composer.getByLabel('What’s on your mind?', { exact: true }).fill('The latest thought in this project.');
+  await composer.getByRole('button', { name: 'Add note', exact: true }).click();
+
+  const search = page.getByRole('search', { name: 'Notes', exact: true });
+  await expect(search.getByRole('button', { name: 'Search', exact: true })).toBeDisabled();
+  await composer.getByLabel('What’s on your mind?', { exact: true }).fill('An unfinished draft.');
+  await search.getByRole('searchbox', { name: 'Search notes', exact: true }).fill('  lighthouse  ');
+  await search.getByRole('button', { name: 'Search', exact: true }).click();
+  await expect(page.getByRole('dialog', { name: 'Discard unsaved changes?' })).toBeVisible();
+  await page.getByRole('button', { name: 'Keep editing', exact: true }).click();
+  await expect(composer.getByLabel('What’s on your mind?', { exact: true })).toHaveValue('An unfinished draft.');
+  await search.getByRole('button', { name: 'Search', exact: true }).click();
+  await page.getByRole('button', { name: 'Discard changes', exact: true }).click();
+
+  const results = page.getByRole('list', { name: 'Search results', exact: true });
+  await expect(page.getByRole('heading', { name: 'Search notes', exact: true })).toBeVisible();
+  await expect(page.getByRole('status')).toHaveText('2 notes found.');
+  await expect(results.getByRole('button')).toHaveCount(2);
+  await expect(results.getByRole('button').filter({ hasText: 'Field notes' })).toContainText('A lighthouse idea');
+  await expect(results.getByRole('button').filter({ hasText: 'Reading room' })).toContainText('The LIGHTHOUSE appears near the end.');
+  await results.getByRole('button').filter({ hasText: 'Reading room' }).click();
+  const opened = page.getByRole('article', { name: 'Untitled note', exact: true });
+  await expect(opened).toBeFocused();
+  await expect(opened).toBeInViewport();
+  await expect(opened.locator('.note-body')).toHaveJSProperty('textContent', longBody);
+  await expect(page.getByRole('heading', { name: 'Reading room', exact: true })).toHaveText('Reading room');
+
+  await opened.getByRole('button', { name: 'Edit', exact: true }).click();
+  const editor = page.getByRole('form', { name: 'Edit note', exact: true });
+  await editor.getByLabel('What’s on your mind?', { exact: true }).fill('An edited thought with a different subject.');
+  await editor.getByRole('button', { name: 'Save changes', exact: true }).click();
+  await page.getByRole('button', { name: '← Back to search results', exact: true }).click();
+  await expect(page.getByRole('status')).toHaveText('1 note found.');
+  await expect(results.getByRole('button')).toHaveCount(1);
+  await results.getByRole('button').click();
+  await expect(page.getByRole('article', { name: 'A lighthouse idea', exact: true })).toBeFocused();
+  await expect(page.getByRole('heading', { name: 'Field notes', exact: true })).toHaveText('Field notes');
+
+  await search.getByRole('searchbox', { name: 'Search notes', exact: true }).fill('a phrase with no matches');
+  await search.getByRole('searchbox', { name: 'Search notes', exact: true }).press('Enter');
+  await expect(page.getByRole('status')).toHaveText('No matching notes. Try another word or phrase.');
+  await expect(results.getByRole('button')).toHaveCount(0);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  expect(browserErrors).toEqual([]);
+});
+
+test('search can retry a failed request and leave a pending search safely', async ({ page, userName }) => {
+  await page.goto('/');
+  await page.getByPlaceholder('Your name', { exact: true }).fill(userName);
+  await page.getByRole('button', { name: 'Create user', exact: true }).click();
+  await page.getByLabel('Project name', { exact: true }).fill('Field notes');
+  await page.getByRole('button', { name: 'Create project', exact: true }).click();
+  const search = page.getByRole('search', { name: 'Notes', exact: true });
+  await page.route('**/api/users/*/notes/search?*', (route) => route.fulfill({ status: 503, json: { message: 'Search is temporarily unavailable.' } }), { times: 1 });
+  await search.getByRole('searchbox', { name: 'Search notes', exact: true }).fill('needle');
+  await search.getByRole('button', { name: 'Search', exact: true }).click();
+  await expect(page.getByRole('alert')).toContainText('Search is temporarily unavailable.');
+  await page.getByRole('button', { name: 'Try again', exact: true }).click();
+  await expect(page.getByRole('status')).toHaveText('No matching notes. Try another word or phrase.');
+
+  let releaseRequest: () => void = () => {};
+  const waiting = new Promise<void>((resolve) => { releaseRequest = resolve; });
+  await page.route('**/api/users/*/notes/search?*', async (route) => {
+    await waiting;
+    await route.fulfill({ json: { notes: [], hasMore: false } });
+  }, { times: 1 });
+  try {
+    await search.getByRole('button', { name: 'Search', exact: true }).click();
+    await expect(page.getByRole('status')).toHaveText('Searching your notes…');
+    await search.getByRole('searchbox', { name: 'Search notes', exact: true }).fill('another phrase');
+    await search.getByRole('button', { name: 'Search', exact: true }).click();
+    await expect(page.getByRole('status')).toHaveText('No matching notes. Try another word or phrase.');
+    releaseRequest();
+    await expect(page.getByText('Results for “another phrase” across your projects.', { exact: true })).toBeVisible();
+    await expect(page.getByRole('status')).toHaveText('No matching notes. Try another word or phrase.');
+  } finally { releaseRequest(); }
+});
+
 test('capture, refresh, edit a project and note, then delete the note', async ({ page, userName }, testInfo) => {
   const browserErrors: string[] = [];
   page.on('pageerror', (error) => browserErrors.push(error.message));

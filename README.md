@@ -23,6 +23,8 @@ Create a user, create a project, and add a note. Refresh to see it persist. The 
 
 Use **Move to project…** on a saved note to choose another project belonging to the current user, then select **Move note**. Moving preserves the note's content and dates, updates both project counts, and leaves you in the source project with any unsaved composer draft intact.
 
+Use **Search notes** in the sidebar to find text in saved note titles and bodies across your projects. Searches ignore case and treat punctuation literally. Results show the project name and an excerpt; select one to open, scroll to, and focus that note. **Back to search results** refreshes the results after edits. Leaving an unsaved draft still requires confirmation. Broad searches show the newest 50 matches and suggest narrowing the query.
+
 User selection is a local convenience, not authentication. Anyone who can reach the API can select any user. This version is intended for local development only.
 
 ## Commands
@@ -37,9 +39,9 @@ User selection is a local convenience, not authentication. Anyone who can reach 
 | `npm run build` | Type-check and build the frontend and server |
 | `npm start` | Serve the built application at http://127.0.0.1:3001 |
 
-Integration tests use a transaction and roll back their fixtures. Run migrations before testing. They verify CRUD, input validation, user/project scoping, note moves with content and timestamp preservation, and database constraints using real PostgreSQL.
+Integration tests use a transaction and roll back their fixtures. Run migrations before testing. They verify CRUD, input validation, user/project scoping, note moves with content and timestamp preservation, note search, and database constraints using real PostgreSQL.
 
-Install the browser once with `npx playwright install chromium`, then run `npm run test:e2e`. The suite starts its own compiled application on localhost port 3101. Each test creates a uniquely named user and cleans up only that user's records after each run, including assertion failures. The workflows cover note creation/refresh/edit/deletion, project editing, and note moves with cancellation, failed-request retry, counts, and draft preservation. Tests use the same migrated database from `.env`; they do not reset the database. Keep port 3101 free. Playwright stops its server when the run ends, so your normal development servers can keep running. Failure screenshots and traces go to your OS temporary directory under `bartleby-playwright`, outside the repository.
+Install the browser once with `npx playwright install chromium`, then run `npm run test:e2e`. The suite starts its own compiled application on localhost port 3101. Each test creates a uniquely named user and cleans up only that user's records after each run, including assertion failures. The workflows cover note creation/refresh/edit/deletion, project editing, note moves, and search with result navigation, draft protection, failed-request retry, and pending requests. Tests use the same migrated database from `.env`; they do not reset the database. Keep port 3101 free. Playwright stops its server when the run ends, so your normal development servers can keep running. Failure screenshots and traces go to your OS temporary directory under `bartleby-playwright`, outside the repository.
 
 ## Structure
 
@@ -79,6 +81,7 @@ All schema changes go through `node-pg-migrate`. Create a migration with `npx no
 | GET | `/api/health` | Check API/database connectivity |
 | GET, POST | `/api/users` | List or create users |
 | GET, POST | `/api/users/:userId/projects` | List or create projects |
+| GET | `/api/users/:userId/notes/search?q=phrase` | Search saved note titles and bodies across a user's projects |
 | GET | `/api/users/:userId/projects/:projectId` | Get a project and its notes |
 | PATCH | `/api/users/:userId/projects/:projectId` | Rename a project or update its description |
 | POST | `/api/users/:userId/projects/:projectId/notes` | Create a note |
@@ -91,9 +94,11 @@ Project edits accept either or both of `name` and `description`, for example `{ 
 
 Note moves accept `{ "targetProjectId": "destination-project-uuid" }` and return `{ "note": ... }`. The path identifies the source project and note. Both projects must belong to the path's user; missing or mismatched records return 404. Moving changes only the project ID, preserving the note ID, title, body, creation time, and modification time. Moving to the current project succeeds without changing the note.
 
+Search requires a nonblank `q` of at most 200 characters and trims surrounding whitespace. It uses a parameterized PostgreSQL `ILIKE` query with escaped wildcard characters. The response is `{ "notes": [...], "hasMore": false }`; each result contains `id`, `projectId`, `projectName`, `title`, and `excerpt`. Results are ordered by creation time newest first, then note ID, with a maximum of 50. No schema changes or additional search infrastructure are required.
+
 ## Scope
 
-The application includes user creation, project creation/listing/editing, project detail, and note creation/editing/deletion/moving. AI, collaboration, roles, tags, project hierarchies, real-time synchronization, and elaborate authentication are outside this version. Add infrastructure and abstractions only in response to a concrete need.
+The application includes user creation, project creation/listing/editing, project detail, and note creation/editing/deletion/moving/search. AI, collaboration, roles, tags, project hierarchies, real-time synchronization, and elaborate authentication are outside this version. Add infrastructure and abstractions only in response to a concrete need.
 
 ## License
 

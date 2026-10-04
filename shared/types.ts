@@ -25,6 +25,19 @@ export interface NoteInput {
   body: string;
 }
 
+export interface NoteSearchResult {
+  id: string;
+  projectId: string;
+  projectName: string;
+  title: string;
+  excerpt: string;
+}
+
+export interface NoteSearchResponse {
+  notes: NoteSearchResult[];
+  hasMore: boolean;
+}
+
 export interface ProjectInput {
   name: string;
   description: string;

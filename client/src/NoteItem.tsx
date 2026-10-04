@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { Note, NoteInput, Project } from '../../shared/types';
 import { errorMessage } from './api';
 import { NoteForm } from './NoteForm';
@@ -7,23 +7,32 @@ import type { DraftChange } from './useDraftGuard';
 
 const dateFormatter = new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
 
-export function NoteItem({ note, destinations, busy, onUpdate, onDelete, onMove, onDirtyChange }: {
+export function NoteItem({ note, focused, destinations, busy, onUpdate, onDelete, onMove, onDirtyChange }: {
   note: Note; destinations: Project[]; busy: boolean; onUpdate: (id: string, input: NoteInput) => Promise<void>;
   onMove: (id: string, targetProjectId: string) => Promise<void>;
   onDelete: (id: string) => Promise<void>; onDirtyChange: DraftChange;
+  focused: boolean;
 }) {
   const [editing, setEditing] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [moving, setMoving] = useState(false);
   const moveButton = useRef<HTMLButtonElement>(null);
   const [error, setError] = useState('');
+  const article = useRef<HTMLElement>(null);
+
+  useEffect(() => {
+    if (focused) {
+      article.current?.focus({ preventScroll: true });
+      article.current?.scrollIntoView({ block: 'center' });
+    }
+  }, [focused]);
 
   if (editing) return <li className="note-item editing">
     <NoteForm id={note.id} initial={note} disabled={busy} onDirtyChange={onDirtyChange}
       onCancel={() => setEditing(false)} onSave={async (input) => { await onUpdate(note.id, input); setEditing(false); }} />
   </li>;
 
-  return <li className="note-item"><article>
+  return <li className={`note-item${focused ? ' located-note' : ''}`}><article ref={article} tabIndex={-1} aria-label={note.title || 'Untitled note'}>
     <div className="note-heading"><div>{note.title ? <h3>{note.title}</h3> : null}
       <time dateTime={note.createdAt} title={`Last saved ${new Date(note.updatedAt).toLocaleString()}`}>{dateFormatter.format(new Date(note.createdAt))}</time>
     </div><div className="note-actions">

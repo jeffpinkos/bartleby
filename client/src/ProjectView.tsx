@@ -5,10 +5,11 @@ import { NoteForm } from './NoteForm';
 import { NoteItem } from './NoteItem';
 import type { DraftChange } from './useDraftGuard';
 
-export function ProjectView({ userId, project, projects, busy, onBusyChange, onDirtyChange, onNoteCountChange, onNoteMoved, onEdit }: {
+export function ProjectView({ userId, project, projects, targetNoteId, onBackToSearch, busy, onBusyChange, onDirtyChange, onNoteCountChange, onNoteMoved, onEdit }: {
   userId: string; project: Project; projects: Project[]; busy: boolean; onBusyChange: (busy: boolean) => void;
   onNoteMoved: (sourceProjectId: string, targetProjectId: string, sourceCount: number) => void;
   onDirtyChange: DraftChange; onNoteCountChange: (projectId: string, count: number) => void; onEdit: () => void;
+  targetNoteId: string | null; onBackToSearch?: () => void;
 }) {
   const [notes, setNotes] = useState<Note[] | null>(null);
   const [error, setError] = useState('');
@@ -16,6 +17,7 @@ export function ProjectView({ userId, project, projects, busy, onBusyChange, onD
   const [moveNotice, setMoveNotice] = useState('');
   const moveNoticeRef = useRef<HTMLDivElement>(null);
   const [attempt, setAttempt] = useState(0);
+  const [missingTarget, setMissingTarget] = useState(false);
   const path = `/users/${userId}/projects/${project.id}`;
   const destinations = projects.filter((item) => item.id !== project.id);
 
@@ -27,10 +29,15 @@ export function ProjectView({ userId, project, projects, busy, onBusyChange, onD
     const controller = new AbortController();
     setError('');
     void api<{ project: Project; notes: Note[] }>(path, { signal: controller.signal })
-      .then((data) => { setNotes(data.notes); onNoteCountChange(data.project.id, data.notes.length); })
+      .then((data) => {
+        if (controller.signal.aborted) return;
+        setNotes(data.notes);
+        setMissingTarget(!!targetNoteId && !data.notes.some((note) => note.id === targetNoteId));
+        onNoteCountChange(data.project.id, data.notes.length);
+      })
       .catch((reason: unknown) => { if (!controller.signal.aborted) setError(errorMessage(reason)); });
     return () => controller.abort();
-  }, [path, attempt, onNoteCountChange]);
+  }, [path, attempt, onNoteCountChange, targetNoteId]);
 
   async function addNote(input: NoteInput) {
     if (!notes) return;
@@ -84,16 +91,18 @@ export function ProjectView({ userId, project, projects, busy, onBusyChange, onD
   }
 
   return <section aria-labelledby="project-title">
+    {onBackToSearch ? <button className="text-button back-to-search" onClick={onBackToSearch} disabled={busy}>← Back to search results</button> : null}
     <header className="page-heading project-heading"><div><h1 id="project-title">{project.name}</h1>{project.description ? <p className="subtitle">{project.description}</p> : null}</div>
       <button className="small-button" onClick={onEdit} disabled={busy}>Edit project</button>
     </header>
     {error ? <div className="error-panel" role="alert"><p>{error}</p><button onClick={() => setAttempt((value) => value + 1)}>Try again</button></div>
       : notes === null ? <p role="status">Opening your notes…</p> : <>
+        {missingTarget ? <p className="missing-note" role="status">This note is no longer in this project. Search again to find it.</p> : null}
         <NoteForm id="new-note" disabled={busy} onSave={addNote} onDirtyChange={onDirtyChange} />
         <section className="notes" aria-labelledby="notes-title">
           <div ref={moveNoticeRef} className="move-notice" role="status" tabIndex={-1}>{moveNotice}</div>
           <div className="notes-heading"><h2 id="notes-title">Notes <span>{notes.length}</span></h2><span className="sort-label">Newest first</span></div>
-          {notes.length ? <ul className="note-list">{notes.map((note) => <NoteItem key={note.id} note={note} destinations={destinations} busy={busy} onUpdate={updateNote} onDelete={deleteNote} onMove={moveNote} onDirtyChange={onDirtyChange} />)}</ul>
+          {notes.length ? <ul className="note-list">{notes.map((note) => <NoteItem key={note.id} note={note} focused={note.id === targetNoteId} destinations={destinations} busy={busy} onUpdate={updateNote} onDelete={deleteNote} onMove={moveNote} onDirtyChange={onDirtyChange} />)}</ul>
             : <div className="empty-notes"><p>No notes yet.</p><p>Start with whatever’s on your mind.</p></div>}
         </section>
       </>}

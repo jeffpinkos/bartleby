@@ -61,6 +61,16 @@ export function buildApp(db: queries.Database, logger = false) {
     return { projects: await queries.listProjects(db, request.params.userId) };
   });
 
+  app.get<{ Params: UserParams; Querystring: { q: string } }>('/api/users/:userId/notes/search', {
+    schema: { params: userParams, querystring: {
+      type: 'object', required: ['q'], additionalProperties: false,
+      properties: { q: { type: 'string', maxLength: 200, pattern: '\\S' } },
+    } },
+  }, async (request, reply) => {
+    if (!await queries.userExists(db, request.params.userId)) return reply.code(404).send({ message: 'User not found.' });
+    return queries.searchNotes(db, request.params.userId, request.query.q.trim());
+  });
+
   app.post<{ Params: UserParams; Body: ProjectInput }>('/api/users/:userId/projects', {
     schema: { params: userParams, body: {
       type: 'object', required: ['name'], additionalProperties: false,

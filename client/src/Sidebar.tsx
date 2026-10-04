@@ -1,15 +1,26 @@
+import { useState } from 'react';
 import type { Project, User } from '../../shared/types';
 
 function Plus() {
   return <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><path d="M12 4v16M4 12h16" /></svg>;
 }
 
-export function Sidebar({ user, projects, selectedId, disabled, onSelect, onNew, onSwitchUser }: {
+export function Sidebar({ user, projects, selectedId, disabled, onSelect, onNew, onSwitchUser, onSearch }: {
   user: User; projects: Project[]; selectedId: string | null; disabled: boolean;
   onSelect: (id: string) => void; onNew: () => void; onSwitchUser: () => void;
+  onSearch: (query: string) => void;
 }) {
+  const [query, setQuery] = useState('');
   return <aside className="sidebar">
     <div className="wordmark">bartleby.</div>
+    <form className="search-form" role="search" aria-label="Notes" onSubmit={(event) => {
+      event.preventDefault();
+      if (query.trim() && !disabled) onSearch(query.trim());
+    }}>
+      <label className="sr-only" htmlFor="note-search">Search notes</label>
+      <input id="note-search" type="search" maxLength={200} placeholder="Search notes…" value={query} onChange={(event) => setQuery(event.target.value)} disabled={disabled} />
+      <button className="small-button" disabled={disabled || !query.trim()}>Search</button>
+    </form>
     <nav aria-label="Projects" className="project-navigation">
       <div className="nav-heading"><span>Projects</span><button className="icon-button" aria-label="Create a project" onClick={onNew} disabled={disabled}><Plus /></button></div>
       <ul className="project-list">{projects.map((project) => <li key={project.id}>

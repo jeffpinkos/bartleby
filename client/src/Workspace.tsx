@@ -1,15 +1,18 @@
 import { useCallback, useEffect, useState } from 'react';
-import type { Project, User } from '../../shared/types';
+import type { NoteSearchResult, Project, User } from '../../shared/types';
 import { api, errorMessage, readPreference, savePreference } from './api';
 import { Sidebar } from './Sidebar';
 import { ProjectForm } from './ProjectForm';
 import { ProjectView } from './ProjectView';
+import { SearchView } from './SearchView';
 import { useConfirmDiscard } from './DiscardDialog';
 
 export function Workspace({ user, onSwitchUser }: { user: User; onSwitchUser: () => void }) {
   const [projects, setProjects] = useState<Project[] | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [mode, setMode] = useState<'view' | 'create' | 'edit'>('view');
+  const [mode, setMode] = useState<'view' | 'create' | 'edit' | 'search'>('view');
+  const [search, setSearch] = useState({ query: '', version: 0 });
+  const [targetNoteId, setTargetNoteId] = useState<string | null>(null);
   const [error, setError] = useState('');
   const [attempt, setAttempt] = useState(0);
   const [busy, setBusy] = useState(false);
@@ -57,7 +60,22 @@ export function Workspace({ user, onSwitchUser }: { user: User; onSwitchUser: ()
     if (id === selectedId && mode === 'view') return;
     navigate(() => {
       setSelectedId(id);
+      setTargetNoteId(null);
       savePreference(`project.${user.id}`, id);
+      setMode('view');
+    });
+  }
+  function searchNotes(query: string) {
+    navigate(() => {
+      setSearch((current) => ({ query, version: current.version + 1 }));
+      setMode('search');
+    });
+  }
+  function openSearchResult(note: NoteSearchResult) {
+    navigate(() => {
+      setSelectedId(note.projectId);
+      setTargetNoteId(note.id);
+      savePreference(`project.${user.id}`, note.projectId);
       setMode('view');
     });
   }
@@ -65,23 +83,25 @@ export function Workspace({ user, onSwitchUser }: { user: User; onSwitchUser: ()
 
   return <div className="app-shell">
     <a className="skip-link" href="#main-content">Skip to notes</a>
-    <Sidebar user={user} projects={projects ?? []} selectedId={mode === 'create' ? null : selectedId} disabled={busy || !projects}
+    <Sidebar user={user} projects={projects ?? []} selectedId={mode === 'create' || mode === 'search' ? null : selectedId} disabled={busy || !projects}
       onSelect={selectProject} onNew={() => { if (mode !== 'create') navigate(() => setMode('create')); }}
-      onSwitchUser={() => navigate(onSwitchUser)} />
+      onSwitchUser={() => navigate(onSwitchUser)} onSearch={searchNotes} />
     <main className="workspace" id="main-content">
       {error ? <div className="error-panel" role="alert"><h1>Couldn’t open your projects.</h1><p>{error}</p><button onClick={() => setAttempt((value) => value + 1)}>Try again</button></div>
         : !projects ? <p role="status">Opening your projects…</p>
-          : mode !== 'view' ? <ProjectForm key={mode === 'edit' ? selectedId : 'new'} userId={user.id} isFirst={!projects.length} initial={mode === 'edit' ? selected : undefined} onDirtyChange={onDirtyChange} onBusyChange={setBusy}
+          : mode === 'search' ? <SearchView key={search.version} userId={user.id} query={search.query} onOpen={openSearchResult} />
+            : mode === 'create' || mode === 'edit' ? <ProjectForm key={mode === 'edit' ? selectedId : 'new'} userId={user.id} isFirst={!projects.length} initial={mode === 'edit' ? selected : undefined} onDirtyChange={onDirtyChange} onBusyChange={setBusy}
             onCancel={() => navigate(() => setMode('view'))}
             onSaved={(project) => {
               setProjects((current) => current?.some((item) => item.id === project.id)
                 ? current.map((item) => item.id === project.id ? project : item)
                 : [...current ?? [], project]);
               setSelectedId(project.id);
+              if (mode === 'create') setTargetNoteId(null);
               savePreference(`project.${user.id}`, project.id);
               setMode('view');
             }} />
-            : selected ? <ProjectView key={selected.id} userId={user.id} project={selected} projects={projects} busy={busy} onBusyChange={setBusy} onDirtyChange={onDirtyChange} onNoteCountChange={onNoteCountChange} onNoteMoved={onNoteMoved} onEdit={() => navigate(() => setMode('edit'))} /> : null}
+            : selected ? <ProjectView key={selected.id} userId={user.id} project={selected} projects={projects} targetNoteId={targetNoteId} onBackToSearch={targetNoteId ? () => searchNotes(search.query) : undefined} busy={busy} onBusyChange={setBusy} onDirtyChange={onDirtyChange} onNoteCountChange={onNoteCountChange} onNoteMoved={onNoteMoved} onEdit={() => navigate(() => setMode('edit'))} /> : null}
     </main>
     {dialog}
   </div>;

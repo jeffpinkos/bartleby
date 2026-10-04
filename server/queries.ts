@@ -1,5 +1,5 @@
 import type { Pool, PoolClient } from 'pg';
-import type { Note, NoteInput, Project, ProjectInput, User } from '../shared/types.js';
+import type { Note, NoteInput, NoteSearchResponse, NoteSearchResult, Project, ProjectInput, User } from '../shared/types.js';
 
 // A connected client also lets integration tests roll back their own data.
 export type Database = Pool | PoolClient;
@@ -54,6 +54,24 @@ export async function listNotes(db: Database, projectId: string) {
   return (await db.query<NoteRow>(`
     SELECT ${noteColumns} FROM notes n
     WHERE n.project_id = $1 ORDER BY n.created_at DESC, n.id DESC`, [projectId])).rows.map(toNote);
+}
+
+export async function searchNotes(db: Database, userId: string, query: string): Promise<NoteSearchResponse> {
+  // Treat SQL wildcard characters as ordinary text in the user's search.
+  const pattern = `%${query.replace(/[!%_]/g, '!$&')}%`;
+  const rows = (await db.query<Omit<NoteSearchResult, 'excerpt'> & { body: string }>(`
+    SELECT n.id, n.project_id AS "projectId", p.name AS "projectName", n.title, n.body
+    FROM notes n JOIN projects p ON p.id = n.project_id
+    WHERE p.user_id = $1 AND (n.title ILIKE $2 ESCAPE '!' OR n.body ILIKE $2 ESCAPE '!')
+    ORDER BY n.created_at DESC, n.id DESC LIMIT 51`, [userId, pattern])).rows;
+  const notes = rows.slice(0, 50).map(({ body, ...note }) => {
+    const match = body.toLowerCase().indexOf(query.toLowerCase());
+    const start = Math.max(0, match - 60);
+    const end = start + 240;
+    const excerpt = `${start ? '…' : ''}${body.slice(start, end)}${end < body.length ? '…' : ''}`;
+    return { ...note, excerpt };
+  });
+  return { notes, hasMore: rows.length > 50 };
 }
 
 export async function createNote(db: Database, userId: string, projectId: string, input: NoteInput) {
