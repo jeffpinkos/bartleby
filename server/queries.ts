@@ -73,6 +73,16 @@ export async function updateNote(db: Database, userId: string, projectId: string
   return row ? toNote(row) : undefined;
 }
 
+export async function moveNote(db: Database, userId: string, projectId: string, noteId: string, targetProjectId: string) {
+  const row = (await db.query<NoteRow>(`
+    UPDATE notes n SET project_id = target.id
+    FROM projects source, projects target
+    WHERE n.project_id = source.id AND source.user_id = $1 AND source.id = $2 AND n.id = $3
+      AND target.user_id = $1 AND target.id = $4
+    RETURNING ${noteColumns}`, [userId, projectId, noteId, targetProjectId])).rows[0];
+  return row ? toNote(row) : undefined;
+}
+
 export async function deleteNote(db: Database, userId: string, projectId: string, noteId: string) {
   return (await db.query(`
     DELETE FROM notes n USING projects p

@@ -155,6 +155,113 @@ test('Bartleby API with real PostgreSQL', async (t) => {
       assert.equal(fetched.project.noteCount, 0);
     });
 
+    await t.test('moves notes between projects', async (t) => {
+      const createProject = async (userId: string, name: string) => {
+        const response = await request({ method: 'POST', url: `/api/users/${userId}/projects`, payload: { name } });
+        assert.equal(response.statusCode, 201, response.body);
+        return response.json<{ project: Project }>().project;
+      };
+      const source = await createProject(owner.id, 'Move source');
+      const target = await createProject(owner.id, 'Move destination');
+      const foreign = await createProject(other.id, 'Another user\'s project');
+      const createNote = async (project: Project, title: string, body: string) => {
+        const response = await request({
+          method: 'POST', url: `/api/users/${project.userId}/projects/${project.id}/notes`, payload: { title, body },
+        });
+        assert.equal(response.statusCode, 201, response.body);
+        return response.json<{ note: Note }>().note;
+      };
+      const original = await createNote(source, 'A traveling thought', 'First line\n  Keep spaces, a quote: \' and <tags>.\n');
+      // Distinct, fixed timestamps make preservation observable even in a fast test run.
+      original.createdAt = '2020-01-02T03:04:05.000Z';
+      original.updatedAt = '2021-02-03T04:05:06.000Z';
+      await db.query('UPDATE notes SET created_at = $2, updated_at = $3 WHERE id = $1', [original.id, original.createdAt, original.updatedAt]);
+      const existing = await createNote(target, 'Already here', 'Leave this note alone.');
+      const foreignNote = await createNote(foreign, 'Private to the other user', 'Keep this project relationship.');
+      const getProject = async (project: Project) => {
+        const response = await request({ url: `/api/users/${project.userId}/projects/${project.id}` });
+        assert.equal(response.statusCode, 200, response.body);
+        return response.json<{ project: Project; notes: Note[] }>();
+      };
+      const snapshot = async () => [await getProject(source), await getProject(target), await getProject(foreign)];
+      const movePath = (userId: string, projectId: string, noteId: string) => `/api/users/${userId}/projects/${projectId}/notes/${noteId}/move`;
+      const moved = { ...original, projectId: target.id };
+
+      await t.test('preserves the existing note and updates both project lists and counts', async () => {
+        assert.deepEqual((await getProject(source)).notes, [original]);
+        const response = await request({
+          method: 'POST', url: movePath(owner.id, source.id, original.id), payload: { targetProjectId: target.id },
+        });
+        assert.equal(response.statusCode, 200, response.body);
+        assert.deepEqual(response.json<{ note: Note }>(), { note: moved });
+        assert.deepEqual(await getProject(source), { project: { ...source, noteCount: 0 }, notes: [] });
+        assert.deepEqual(await getProject(target), { project: { ...target, noteCount: 2 }, notes: [existing, moved] });
+        const projects = (await request({ url: `${userPath}/projects` })).json<{ projects: Project[] }>().projects;
+        assert.equal(projects.find((project) => project.id === source.id)?.noteCount, 0);
+        assert.equal(projects.find((project) => project.id === target.id)?.noteCount, 2);
+        assert.deepEqual((await getProject(foreign)).notes, [foreignNote]);
+      });
+
+      await t.test('treats moving to the current project as a successful no-op', async () => {
+        const before = await snapshot();
+        const response = await request({
+          method: 'POST', url: movePath(owner.id, target.id, moved.id), payload: { targetProjectId: target.id },
+        });
+        assert.equal(response.statusCode, 200, response.body);
+        assert.deepEqual(response.json<{ note: Note }>(), { note: moved });
+        assert.deepEqual(await snapshot(), before);
+      });
+
+      await t.test('rejects missing or mismatched users, source projects, notes, and destinations without mutation', async () => {
+        const before = await snapshot();
+        const cases = [
+          { userId: randomUUID(), projectId: target.id, noteId: moved.id, targetProjectId: source.id },
+          { userId: other.id, projectId: target.id, noteId: moved.id, targetProjectId: foreign.id },
+          { userId: owner.id, projectId: source.id, noteId: moved.id, targetProjectId: source.id },
+          { userId: owner.id, projectId: randomUUID(), noteId: moved.id, targetProjectId: source.id },
+          { userId: owner.id, projectId: foreign.id, noteId: foreignNote.id, targetProjectId: source.id },
+          { userId: owner.id, projectId: target.id, noteId: foreignNote.id, targetProjectId: source.id },
+          { userId: owner.id, projectId: target.id, noteId: randomUUID(), targetProjectId: source.id },
+          { userId: owner.id, projectId: target.id, noteId: moved.id, targetProjectId: randomUUID() },
+          { userId: owner.id, projectId: target.id, noteId: moved.id, targetProjectId: foreign.id },
+        ];
+        for (const { userId, projectId, noteId, targetProjectId } of cases) {
+          const response = await request({ method: 'POST', url: movePath(userId, projectId, noteId), payload: { targetProjectId } });
+          assert.equal(response.statusCode, 404, response.body);
+          assert.deepEqual(response.json(), { message: 'Note or project not found.' });
+          assert.deepEqual(await snapshot(), before);
+        }
+      });
+
+      await t.test('rejects malformed identifiers and move bodies without mutation', async () => {
+        const before = await snapshot();
+        const url = movePath(owner.id, target.id, moved.id);
+        for (const payload of [
+          {}, { targetProjectId: '' }, { targetProjectId: 'not-a-uuid' }, { targetProjectId: 42 },
+          { targetProjectId: null }, { targetProjectId: [source.id] },
+          { targetProjectId: source.id, title: 'Unexpected edit' }, { targetProjectId: source.id, body: 'Unexpected edit' },
+          [],
+        ]) {
+          const response = await request({ method: 'POST', url, payload });
+          assert.equal(response.statusCode, 400, response.body);
+          assert.deepEqual(await snapshot(), before);
+        }
+        assert.equal((await request({ method: 'POST', url })).statusCode, 400);
+        for (const payload of ['null', '{', '42', '"a string"']) {
+          const response = await request({ method: 'POST', url, headers: { 'content-type': 'application/json' }, payload });
+          assert.equal(response.statusCode, 400, response.body);
+        }
+        for (const path of [
+          movePath('not-a-uuid', target.id, moved.id),
+          movePath(owner.id, 'not-a-uuid', moved.id),
+          movePath(owner.id, target.id, 'not-a-uuid'),
+        ]) {
+          assert.equal((await request({ method: 'POST', url: path, payload: { targetProjectId: source.id } })).statusCode, 400);
+        }
+        assert.deepEqual(await snapshot(), before);
+      });
+    });
+
     await t.test('database constraints reject orphaned projects and whitespace-only notes', async () => {
       await db.query('SAVEPOINT constraint_test');
       await assert.rejects(db.query('INSERT INTO projects (user_id, name) VALUES ($1, $2)', [randomUUID(), 'Orphan']), { code: '23503' });

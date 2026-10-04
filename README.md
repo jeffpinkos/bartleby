@@ -21,6 +21,8 @@ Open [Bartleby](http://127.0.0.1:5173). Vite serves the frontend and proxies `/a
 
 Create a user, create a project, and add a note. Refresh to see it persist. The browser remembers the selected user and project; all users, projects, and saved notes live in PostgreSQL. Use **Edit project** next to the project heading to rename it or change its description. Note titles and project descriptions are optional. Note bodies are plain text, with line breaks and indentation preserved. Editing uses an explicit **Save changes** button. Deletion requires confirmation, and navigation warns before discarding a draft.
 
+Use **Move to project…** on a saved note to choose another project belonging to the current user, then select **Move note**. Moving preserves the note's content and dates, updates both project counts, and leaves you in the source project with any unsaved composer draft intact.
+
 User selection is a local convenience, not authentication. Anyone who can reach the API can select any user. This version is intended for local development only.
 
 ## Commands
@@ -35,9 +37,9 @@ User selection is a local convenience, not authentication. Anyone who can reach 
 | `npm run build` | Type-check and build the frontend and server |
 | `npm start` | Serve the built application at http://127.0.0.1:3001 |
 
-Integration tests use a transaction and roll back their fixtures. Run migrations before testing. They verify CRUD, input validation, user/project scoping, and database constraints using real PostgreSQL.
+Integration tests use a transaction and roll back their fixtures. Run migrations before testing. They verify CRUD, input validation, user/project scoping, note moves with content and timestamp preservation, and database constraints using real PostgreSQL.
 
-Install the browser once with `npx playwright install chromium`, then run `npm run test:e2e`. The test starts its own compiled application on localhost port 3101, creates a uniquely named user, exercises note creation/refresh/edit/deletion and project editing, and cleans up only that user's records after each run, including assertion failures. It uses the same migrated database from `.env`; it does not reset the database. Keep port 3101 free. Playwright stops its server when the run ends, so your normal development servers can keep running. Failure screenshots and traces go to your OS temporary directory under `bartleby-playwright`, outside the repository.
+Install the browser once with `npx playwright install chromium`, then run `npm run test:e2e`. The suite starts its own compiled application on localhost port 3101. Each test creates a uniquely named user and cleans up only that user's records after each run, including assertion failures. The workflows cover note creation/refresh/edit/deletion, project editing, and note moves with cancellation, failed-request retry, counts, and draft preservation. Tests use the same migrated database from `.env`; they do not reset the database. Keep port 3101 free. Playwright stops its server when the run ends, so your normal development servers can keep running. Failure screenshots and traces go to your OS temporary directory under `bartleby-playwright`, outside the repository.
 
 ## Structure
 
@@ -81,14 +83,17 @@ All schema changes go through `node-pg-migrate`. Create a migration with `npx no
 | PATCH | `/api/users/:userId/projects/:projectId` | Rename a project or update its description |
 | POST | `/api/users/:userId/projects/:projectId/notes` | Create a note |
 | PATCH, DELETE | `/api/users/:userId/projects/:projectId/notes/:noteId` | Edit or delete a note |
+| POST | `/api/users/:userId/projects/:projectId/notes/:noteId/move` | Move a note to another project belonging to the same user |
 
 Create a user with `{ "name": "Jeff" }`, a project with `{ "name": "Field notes", "description": "" }`, and a note with `{ "title": "", "body": "An idea." }`. Editing sends the complete note body and optional title. API routes validate input and reject mismatched user/project/note IDs; this relationship check is not an authentication boundary.
 
 Project edits accept either or both of `name` and `description`, for example `{ "name": "Working notes" }`. Omitted fields stay unchanged; an empty description clears it. A project name cannot be blank. Project editing preserves the project ID, owner, and notes.
 
+Note moves accept `{ "targetProjectId": "destination-project-uuid" }` and return `{ "note": ... }`. The path identifies the source project and note. Both projects must belong to the path's user; missing or mismatched records return 404. Moving changes only the project ID, preserving the note ID, title, body, creation time, and modification time. Moving to the current project succeeds without changing the note.
+
 ## Scope
 
-The application includes user creation, project creation/listing/editing, project detail, and note creation/editing/deletion. AI, collaboration, roles, tags, project hierarchies, real-time synchronization, and elaborate authentication are outside this version. Add infrastructure and abstractions only in response to a concrete need.
+The application includes user creation, project creation/listing/editing, project detail, and note creation/editing/deletion/moving. AI, collaboration, roles, tags, project hierarchies, real-time synchronization, and elaborate authentication are outside this version. Add infrastructure and abstractions only in response to a concrete need.
 
 ## License
 

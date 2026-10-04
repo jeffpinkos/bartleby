@@ -29,6 +29,14 @@ export function Workspace({ user, onSwitchUser }: { user: User; onSwitchUser: ()
     setProjects((current) => current?.map((project) => project.id === projectId ? { ...project, noteCount: count } : project) ?? null);
   }, []);
 
+  const onNoteMoved = useCallback((sourceId: string, targetId: string, sourceCount: number) => {
+    setProjects((current) => current?.map((project) => {
+      if (project.id === sourceId) return { ...project, noteCount: sourceCount };
+      if (project.id === targetId) return { ...project, noteCount: project.noteCount + 1 };
+      return project;
+    }) ?? null);
+  }, []);
+
   useEffect(() => {
     const controller = new AbortController();
     setError('');
@@ -73,7 +81,7 @@ export function Workspace({ user, onSwitchUser }: { user: User; onSwitchUser: ()
               savePreference(`project.${user.id}`, project.id);
               setMode('view');
             }} />
-            : selected ? <ProjectView key={selected.id} userId={user.id} project={selected} busy={busy} onBusyChange={setBusy} onDirtyChange={onDirtyChange} onNoteCountChange={onNoteCountChange} onEdit={() => navigate(() => setMode('edit'))} /> : null}
+            : selected ? <ProjectView key={selected.id} userId={user.id} project={selected} projects={projects} busy={busy} onBusyChange={setBusy} onDirtyChange={onDirtyChange} onNoteCountChange={onNoteCountChange} onNoteMoved={onNoteMoved} onEdit={() => navigate(() => setMode('edit'))} /> : null}
     </main>
     {dialog}
   </div>;

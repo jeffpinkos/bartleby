@@ -113,6 +113,17 @@ export function buildApp(db: queries.Database, logger = false) {
     return { note };
   });
 
+  app.post<{ Params: NoteParams; Body: { targetProjectId: string } }>(`${projectPath}/notes/:noteId/move`, {
+    schema: { params: noteParams, body: {
+      type: 'object', required: ['targetProjectId'], additionalProperties: false,
+      properties: { targetProjectId: uuid },
+    } },
+  }, async (request, reply) => {
+    const note = await queries.moveNote(db, request.params.userId, request.params.projectId, request.params.noteId, request.body.targetProjectId);
+    if (!note) return reply.code(404).send({ message: 'Note or project not found.' });
+    return { note };
+  });
+
   app.delete<{ Params: NoteParams }>(`${projectPath}/notes/:noteId`, { schema: { params: noteParams } }, async (request, reply) => {
     const deleted = await queries.deleteNote(db, request.params.userId, request.params.projectId, request.params.noteId);
     if (!deleted) return reply.code(404).send({ message: 'Note not found.' });

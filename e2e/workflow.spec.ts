@@ -115,3 +115,125 @@ test('capture, refresh, edit a project and note, then delete the note', async ({
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   expect(browserErrors).toEqual([]);
 });
+
+test('move a note between projects without losing its contents or an unfinished draft', async ({ page, userName }, testInfo) => {
+  const noteTitle = 'A thought to revisit';
+  const noteBody = 'An idea worth keeping.\n  With its indentation.\nAnd another line.';
+  const draftTitle = 'Still thinking';
+  const draftBody = 'This draft stays in Field notes.';
+  const pageErrors: string[] = [];
+  let moveRequests = 0;
+  page.on('pageerror', (error) => pageErrors.push(error.message));
+  page.on('request', (request) => {
+    if (request.method() === 'POST' && new URL(request.url()).pathname.endsWith('/move')) moveRequests += 1;
+  });
+
+  async function expectProjectCount(name: string, count: number) {
+    if (testInfo.project.name === 'mobile') {
+      await expect(page.getByRole('combobox', { name: 'Project', exact: true }).locator('option')).toContainText([`${name} (${count})`]);
+    } else {
+      await expect(page.getByRole('button', { name: `${name} ${count}`, exact: true })).toBeVisible();
+    }
+  }
+
+  async function selectProject(name: string, count: number) {
+    if (testInfo.project.name === 'mobile') {
+      await page.getByRole('combobox', { name: 'Project', exact: true }).selectOption({ label: `${name} (${count})` });
+    } else {
+      await page.getByRole('button', { name: `${name} ${count}`, exact: true }).click();
+    }
+    await expect(page.getByRole('heading', { name, exact: true })).toBeVisible();
+  }
+
+  await page.goto('/');
+  await page.getByPlaceholder('Your name', { exact: true }).fill(userName);
+  await page.getByRole('button', { name: 'Create user', exact: true }).click();
+  await page.getByLabel('Project name', { exact: true }).fill('Field notes');
+  await page.getByRole('button', { name: 'Create project', exact: true }).click();
+  const composer = page.getByRole('form', { name: 'New note', exact: true });
+  await composer.getByLabel('Title (optional)', { exact: true }).fill(noteTitle);
+  await composer.getByLabel('What’s on your mind?', { exact: true }).fill(noteBody);
+  await composer.getByRole('button', { name: 'Add note', exact: true }).click();
+  const note = page.getByRole('article').filter({ has: page.getByRole('heading', { name: noteTitle, exact: true }) });
+  await expect(note).toBeVisible();
+  const createdAt = await note.locator('time').getAttribute('datetime');
+  const lastSaved = await note.locator('time').getAttribute('title');
+
+  await note.getByRole('button', { name: 'Move to project…', exact: true }).click();
+  const moveForm = page.getByRole('form', { name: 'Move note', exact: true });
+  await expect(moveForm.getByText('Create another project to move this note.', { exact: true })).toBeVisible();
+  await moveForm.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect(moveForm).toHaveCount(0);
+  await expect(note).toBeVisible();
+  await expect(note.getByRole('button', { name: 'Move to project…', exact: true })).toBeFocused();
+
+  await page.getByRole('button', { name: 'New project', exact: true }).click();
+  await page.getByLabel('Project name', { exact: true }).fill('Reading room');
+  await page.getByRole('button', { name: 'Create project', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Reading room', exact: true })).toBeVisible();
+  await selectProject('Field notes', 1);
+  await composer.getByLabel('Title (optional)', { exact: true }).fill(draftTitle);
+  await composer.getByLabel('What’s on your mind?', { exact: true }).fill(draftBody);
+
+  await note.getByRole('button', { name: 'Move to project…', exact: true }).click();
+  const destination = moveForm.getByLabel('Destination project', { exact: true });
+  await expect(destination.locator('option')).toHaveText(['Choose a project', 'Reading room']);
+  await expect(moveForm.getByRole('button', { name: 'Move note', exact: true })).toBeDisabled();
+  await destination.selectOption({ label: 'Reading room' });
+  await expect(moveForm.getByRole('button', { name: 'Move note', exact: true })).toBeEnabled();
+  await expectProjectCount('Field notes', 1);
+  await expectProjectCount('Reading room', 0);
+  expect(moveRequests).toBe(0);
+  await moveForm.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect(moveForm).toHaveCount(0);
+  await expect(note).toBeVisible();
+
+  // A failed request keeps the saved note, destination, and unrelated draft available for retry.
+  await page.route('**/api/users/*/projects/*/notes/*/move', (route) => route.fulfill({
+    status: 503,
+    json: { message: 'Move temporarily unavailable. Please try again.' },
+  }), { times: 1 });
+  await note.getByRole('button', { name: 'Move to project…', exact: true }).click();
+  await destination.selectOption({ label: 'Reading room' });
+  await moveForm.getByRole('button', { name: 'Move note', exact: true }).click();
+  await expect(moveForm.getByRole('alert')).toHaveText('Move temporarily unavailable. Please try again.');
+  await expect(destination.locator('option:checked')).toHaveText('Reading room');
+  await expect(note).toBeVisible();
+  await expectProjectCount('Field notes', 1);
+  await expectProjectCount('Reading room', 0);
+  await expect(composer.getByLabel('Title (optional)', { exact: true })).toHaveValue(draftTitle);
+  await expect(composer.getByLabel('What’s on your mind?', { exact: true })).toHaveValue(draftBody);
+
+  await moveForm.getByRole('button', { name: 'Move note', exact: true }).click();
+  const moveNotice = page.getByRole('status').filter({ hasText: 'Moved to Reading room.' });
+  await expect(moveNotice).toHaveText('Moved to Reading room.');
+  await expect(moveNotice).toBeFocused();
+  await expect(page.getByRole('heading', { name: 'Field notes', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Notes 0', exact: true })).toBeVisible();
+  await expect(note).toHaveCount(0);
+  await expectProjectCount('Field notes', 0);
+  await expectProjectCount('Reading room', 1);
+  await expect(composer.getByLabel('Title (optional)', { exact: true })).toHaveValue(draftTitle);
+  await expect(composer.getByLabel('What’s on your mind?', { exact: true })).toHaveValue(draftBody);
+  expect(moveRequests).toBe(2);
+
+  // Clear only the test's unsaved draft before checking persisted source and destination views.
+  await composer.getByLabel('Title (optional)', { exact: true }).fill('');
+  await composer.getByLabel('What’s on your mind?', { exact: true }).fill('');
+  await page.reload();
+  await expect(page.getByRole('heading', { name: 'Field notes', exact: true })).toBeVisible();
+  await expect(page.getByText('No notes yet.', { exact: true })).toBeVisible();
+  await expectProjectCount('Field notes', 0);
+  await expectProjectCount('Reading room', 1);
+  await selectProject('Reading room', 1);
+  await page.reload();
+  await expect(page.getByRole('heading', { name: 'Reading room', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Notes 1', exact: true })).toBeVisible();
+  await expect(note).toBeVisible();
+  await expect(page.getByRole('article')).toHaveCount(1);
+  await expect(note.locator('.note-body')).toHaveJSProperty('textContent', noteBody);
+  await expect(note.locator('time')).toHaveAttribute('datetime', createdAt!);
+  await expect(note.locator('time')).toHaveAttribute('title', lastSaved!);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  expect(pageErrors).toEqual([]);
+});
