@@ -78,6 +78,49 @@ test('Bartleby API with real PostgreSQL', async (t) => {
       assert.equal((await request({ method: 'POST', url: `${userPath}/projects/${randomUUID()}/notes`, payload: { body: 'valid' } })).statusCode, 404);
     });
 
+    await t.test('renames a project and updates or clears its description without changing notes', async () => {
+      const path = `${userPath}/projects/${project.id}`;
+      const renamed = await request({ method: 'PATCH', url: path, payload: { name: '  Working notes  ' } });
+      assert.equal(renamed.statusCode, 200, renamed.body);
+      let updated = renamed.json<{ project: Project }>().project;
+      assert.deepEqual(updated, { ...project, name: 'Working notes', noteCount: 1 });
+
+      const described = await request({ method: 'PATCH', url: path, payload: { description: '  Ideas in progress.  ' } });
+      assert.equal(described.statusCode, 200, described.body);
+      updated = described.json<{ project: Project }>().project;
+      assert.equal(updated.name, 'Working notes');
+      assert.equal(updated.description, 'Ideas in progress.');
+
+      const cleared = await request({ method: 'PATCH', url: path, payload: { description: '' } });
+      assert.equal(cleared.statusCode, 200, cleared.body);
+      updated = cleared.json<{ project: Project }>().project;
+      assert.equal(updated.description, '');
+      assert.equal(updated.userId, owner.id);
+      assert.equal(updated.noteCount, 1);
+      const fetched = (await request({ url: path })).json<{ project: Project; notes: Note[] }>();
+      assert.deepEqual(fetched.project, updated);
+      assert.deepEqual(fetched.notes, [note]);
+      assert.deepEqual((await request({ url: `${userPath}/projects` })).json<{ projects: Project[] }>().projects, [updated]);
+      project = updated;
+    });
+
+    await t.test('rejects invalid project edits and edits under the wrong user', async () => {
+      const path = `${userPath}/projects/${project.id}`;
+      for (const payload of [
+        {}, { name: '' }, { name: ' \n\t ' }, { name: 'x'.repeat(201) }, { name: 42 },
+        { description: 'x'.repeat(2001) }, { description: null }, { description: 42 },
+        { name: 'Valid', userId: other.id },
+      ]) {
+        assert.equal((await request({ method: 'PATCH', url: path, payload })).statusCode, 400);
+      }
+      const payload = { name: 'Changed', description: 'Changed' };
+      assert.equal((await request({ method: 'PATCH', url: `/api/users/${other.id}/projects/${project.id}`, payload })).statusCode, 404);
+      assert.equal((await request({ method: 'PATCH', url: `${userPath}/projects/${randomUUID()}`, payload })).statusCode, 404);
+      const fetched = (await request({ url: path })).json<{ project: Project; notes: Note[] }>();
+      assert.deepEqual(fetched.project, project);
+      assert.deepEqual(fetched.notes, [note]);
+    });
+
     await t.test('prevents mismatched user, project, and note IDs from reading or mutating notes', async () => {
       const wrongUser = `/api/users/${other.id}/projects/${project.id}`;
       assert.equal((await request({ url: wrongUser })).statusCode, 404);

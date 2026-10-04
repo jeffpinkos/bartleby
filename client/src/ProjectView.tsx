@@ -5,9 +5,9 @@ import { NoteForm } from './NoteForm';
 import { NoteItem } from './NoteItem';
 import type { DraftChange } from './useDraftGuard';
 
-export function ProjectView({ userId, project, busy, onBusyChange, onDirtyChange, onNoteCountChange }: {
+export function ProjectView({ userId, project, busy, onBusyChange, onDirtyChange, onNoteCountChange, onEdit }: {
   userId: string; project: Project; busy: boolean; onBusyChange: (busy: boolean) => void;
-  onDirtyChange: DraftChange; onNoteCountChange: (projectId: string, count: number) => void;
+  onDirtyChange: DraftChange; onNoteCountChange: (projectId: string, count: number) => void; onEdit: () => void;
 }) {
   const [notes, setNotes] = useState<Note[] | null>(null);
   const [error, setError] = useState('');
@@ -56,7 +56,9 @@ export function ProjectView({ userId, project, busy, onBusyChange, onDirtyChange
   }
 
   return <section aria-labelledby="project-title">
-    <header className="page-heading"><h1 id="project-title">{project.name}</h1>{project.description ? <p className="subtitle">{project.description}</p> : null}</header>
+    <header className="page-heading project-heading"><div><h1 id="project-title">{project.name}</h1>{project.description ? <p className="subtitle">{project.description}</p> : null}</div>
+      <button className="small-button" onClick={onEdit} disabled={busy}>Edit project</button>
+    </header>
     {error ? <div className="error-panel" role="alert"><p>{error}</p><button onClick={() => setAttempt((value) => value + 1)}>Try again</button></div>
       : notes === null ? <p role="status">Opening your notes…</p> : <>
         <NoteForm id="new-note" disabled={busy} onSave={addNote} onDirtyChange={onDirtyChange} />

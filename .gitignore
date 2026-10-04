@@ -147,3 +147,7 @@ vite.config.ts.timestamp-*
 
 # Turbo Repo
 .turbo
+
+# Browser test artifacts (the default configuration uses the OS temp directory)
+test-results/
+playwright-report/

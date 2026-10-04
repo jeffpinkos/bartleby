@@ -24,3 +24,8 @@ export interface NoteInput {
   title: string;
   body: string;
 }
+
+export interface ProjectInput {
+  name: string;
+  description: string;
+}

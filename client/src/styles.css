@@ -58,6 +58,9 @@ ul { list-style: none; margin: 0; padding: 0; }
 .workspace { min-width: 0; padding: 68px clamp(40px, 6.77vw, 130px) 90px clamp(50px, 13.15vw, 240px); }
 .workspace > section { max-width: 1050px; margin-inline: auto; }
 .page-heading { margin-bottom: 22px; }
+.project-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.project-heading > div { min-width: 0; }
+.project-heading > button { flex-shrink: 0; margin-top: 12px; }
 .subtitle { margin-top: 6px; font-size: 25px; line-height: 1.55; color: #60665d; overflow-wrap: anywhere; white-space: pre-wrap; }
 .note-form { border: 1px solid var(--border); border-radius: 6px; }
 .note-fields { padding: 18px; display: grid; gap: 15px; }
@@ -132,6 +135,8 @@ time { display: block; font-size: 16px; margin-top: 3px; }
   .mobile-project { display: block; min-width: 0; flex: 1; font-size: 16px; }
   .project-navigation .new-project { display: flex; margin: 0; border: 1px solid #bec3b7; padding: 10px; border-radius: 4px; font-size: 14px; flex-shrink: 0; gap: 6px; }
   .workspace { padding: 36px 24px 65px; }
+  .project-heading { flex-direction: column; }
+  .project-heading > button { margin-top: 0; }
   h1 { font-size: 42px; }
   h2 { font-size: 30px; }
   h3 { font-size: 24px; }

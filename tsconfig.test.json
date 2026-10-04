@@ -1,0 +1,6 @@
+{
+  "extends": "./tsconfig.server.json",
+  "compilerOptions": { "noEmit": true, "lib": ["ES2022", "DOM"] },
+  "include": ["server/*.test.ts", "e2e", "playwright.config.ts"],
+  "exclude": []
+}

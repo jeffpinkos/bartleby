@@ -1,5 +1,5 @@
 import Fastify from 'fastify';
-import type { NoteInput } from '../shared/types.js';
+import type { NoteInput, ProjectInput } from '../shared/types.js';
 import * as queries from './queries.js';
 
 type UserParams = { userId: string };
@@ -13,6 +13,10 @@ const projectParams = {
 const noteParams = {
   type: 'object', required: ['userId', 'projectId', 'noteId'],
   properties: { userId: uuid, projectId: uuid, noteId: uuid },
+};
+const projectProperties = {
+  name: { type: 'string', maxLength: 200, pattern: '\\S' },
+  description: { type: 'string', maxLength: 2000 },
 };
 const noteBody = {
   type: 'object', required: ['body'], additionalProperties: false,
@@ -57,12 +61,12 @@ export function buildApp(db: queries.Database, logger = false) {
     return { projects: await queries.listProjects(db, request.params.userId) };
   });
 
-  app.post<{ Params: UserParams; Body: { name: string; description: string } }>('/api/users/:userId/projects', {
+  app.post<{ Params: UserParams; Body: ProjectInput }>('/api/users/:userId/projects', {
     schema: { params: userParams, body: {
       type: 'object', required: ['name'], additionalProperties: false,
       properties: {
-        name: { type: 'string', maxLength: 200, pattern: '\\S' },
-        description: { type: 'string', maxLength: 2000, default: '' },
+        ...projectProperties,
+        description: { ...projectProperties.description, default: '' },
       },
     } },
   }, async (request, reply) => {
@@ -75,6 +79,18 @@ export function buildApp(db: queries.Database, logger = false) {
     const project = await queries.getProject(db, request.params.userId, request.params.projectId);
     if (!project) return reply.code(404).send({ message: 'Project not found.' });
     return { project, notes: await queries.listNotes(db, project.id) };
+  });
+
+  app.patch<{ Params: ProjectParams; Body: Partial<ProjectInput> }>(projectPath, {
+    schema: { params: projectParams, body: {
+      type: 'object', minProperties: 1, additionalProperties: false, properties: projectProperties,
+    } },
+  }, async (request, reply) => {
+    const project = await queries.updateProject(db, request.params.userId, request.params.projectId, {
+      name: request.body.name?.trim(), description: request.body.description?.trim(),
+    });
+    if (!project) return reply.code(404).send({ message: 'Project not found.' });
+    return { project };
   });
 
   app.post<{ Params: ProjectParams; Body: NoteInput }>(`${projectPath}/notes`, {

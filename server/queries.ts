@@ -1,5 +1,5 @@
 import type { Pool, PoolClient } from 'pg';
-import type { Note, NoteInput, Project, User } from '../shared/types.js';
+import type { Note, NoteInput, Project, ProjectInput, User } from '../shared/types.js';
 
 // A connected client also lets integration tests roll back their own data.
 export type Database = Pool | PoolClient;
@@ -39,6 +39,15 @@ export async function createProject(db: Database, userId: string, name: string, 
     INSERT INTO projects (user_id, name, description)
     SELECT id, $2, $3 FROM users WHERE id = $1
     RETURNING id, user_id AS "userId", name, description, 0 AS "noteCount"`, [userId, name, description])).rows[0];
+}
+
+export async function updateProject(db: Database, userId: string, projectId: string, input: Partial<ProjectInput>) {
+  return (await db.query<Project>(`
+    UPDATE projects p SET name = coalesce($3, p.name), description = coalesce($4, p.description)
+    WHERE p.user_id = $1 AND p.id = $2
+    RETURNING p.id, p.user_id AS "userId", p.name, p.description,
+      (SELECT count(*)::int FROM notes WHERE project_id = p.id) AS "noteCount"`,
+  [userId, projectId, input.name, input.description])).rows[0];
 }
 
 export async function listNotes(db: Database, projectId: string) {
