@@ -1,0 +1,107 @@
+import Fastify from 'fastify';
+import type { NoteInput } from '../shared/types.js';
+import * as queries from './queries.js';
+
+type UserParams = { userId: string };
+type ProjectParams = UserParams & { projectId: string };
+type NoteParams = ProjectParams & { noteId: string };
+const uuid = { type: 'string', format: 'uuid' };
+const userParams = { type: 'object', required: ['userId'], properties: { userId: uuid } };
+const projectParams = {
+  type: 'object', required: ['userId', 'projectId'], properties: { userId: uuid, projectId: uuid },
+};
+const noteParams = {
+  type: 'object', required: ['userId', 'projectId', 'noteId'],
+  properties: { userId: uuid, projectId: uuid, noteId: uuid },
+};
+const noteBody = {
+  type: 'object', required: ['body'], additionalProperties: false,
+  properties: {
+    title: { type: 'string', maxLength: 200, default: '' },
+    body: { type: 'string', maxLength: 100000, pattern: '\\S' },
+  },
+};
+const projectPath = '/api/users/:userId/projects/:projectId';
+
+export function buildApp(db: queries.Database, logger = false) {
+  const app = Fastify({ logger, bodyLimit: 512 * 1024, ajv: { customOptions: { removeAdditional: false, coerceTypes: false } } });
+
+  app.setErrorHandler((error, request, reply) => {
+    if (error instanceof Error && 'validation' in error && error.validation) return reply.code(400).send({ message: `Check your input: ${error.message}` });
+    if (error instanceof Error && 'statusCode' in error && typeof error.statusCode === 'number' && error.statusCode >= 400 && error.statusCode < 500) {
+      return reply.code(error.statusCode).send({ message: error.message });
+    }
+    request.log.error(error);
+    return reply.code(500).send({ message: 'Something went wrong. Please try again.' });
+  });
+
+  app.get('/api/health', async () => {
+    await db.query('SELECT 1');
+    return { status: 'ok' };
+  });
+
+  app.get('/api/users', async () => ({ users: await queries.listUsers(db) }));
+
+  app.post<{ Body: { name: string } }>('/api/users', {
+    schema: { body: {
+      type: 'object', required: ['name'], additionalProperties: false,
+      properties: { name: { type: 'string', maxLength: 100, pattern: '\\S' } },
+    } },
+  }, async (request, reply) => {
+    const user = await queries.createUser(db, request.body.name.trim());
+    return reply.code(201).send({ user });
+  });
+
+  app.get<{ Params: UserParams }>('/api/users/:userId/projects', { schema: { params: userParams } }, async (request, reply) => {
+    if (!await queries.userExists(db, request.params.userId)) return reply.code(404).send({ message: 'User not found.' });
+    return { projects: await queries.listProjects(db, request.params.userId) };
+  });
+
+  app.post<{ Params: UserParams; Body: { name: string; description: string } }>('/api/users/:userId/projects', {
+    schema: { params: userParams, body: {
+      type: 'object', required: ['name'], additionalProperties: false,
+      properties: {
+        name: { type: 'string', maxLength: 200, pattern: '\\S' },
+        description: { type: 'string', maxLength: 2000, default: '' },
+      },
+    } },
+  }, async (request, reply) => {
+    const project = await queries.createProject(db, request.params.userId, request.body.name.trim(), request.body.description.trim());
+    if (!project) return reply.code(404).send({ message: 'User not found.' });
+    return reply.code(201).send({ project });
+  });
+
+  app.get<{ Params: ProjectParams }>(projectPath, { schema: { params: projectParams } }, async (request, reply) => {
+    const project = await queries.getProject(db, request.params.userId, request.params.projectId);
+    if (!project) return reply.code(404).send({ message: 'Project not found.' });
+    return { project, notes: await queries.listNotes(db, project.id) };
+  });
+
+  app.post<{ Params: ProjectParams; Body: NoteInput }>(`${projectPath}/notes`, {
+    schema: { params: projectParams, body: noteBody },
+  }, async (request, reply) => {
+    const note = await queries.createNote(db, request.params.userId, request.params.projectId, {
+      title: request.body.title.trim(), body: request.body.body,
+    });
+    if (!note) return reply.code(404).send({ message: 'Project not found.' });
+    return reply.code(201).send({ note });
+  });
+
+  app.patch<{ Params: NoteParams; Body: NoteInput }>(`${projectPath}/notes/:noteId`, {
+    schema: { params: noteParams, body: noteBody },
+  }, async (request, reply) => {
+    const note = await queries.updateNote(db, request.params.userId, request.params.projectId, request.params.noteId, {
+      title: request.body.title.trim(), body: request.body.body,
+    });
+    if (!note) return reply.code(404).send({ message: 'Note not found.' });
+    return { note };
+  });
+
+  app.delete<{ Params: NoteParams }>(`${projectPath}/notes/:noteId`, { schema: { params: noteParams } }, async (request, reply) => {
+    const deleted = await queries.deleteNote(db, request.params.userId, request.params.projectId, request.params.noteId);
+    if (!deleted) return reply.code(404).send({ message: 'Note not found.' });
+    return reply.code(204).send();
+  });
+
+  return app;
+}

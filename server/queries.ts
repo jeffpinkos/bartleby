@@ -1,0 +1,72 @@
+import type { Pool, PoolClient } from 'pg';
+import type { Note, NoteInput, Project, User } from '../shared/types.js';
+
+// A connected client also lets integration tests roll back their own data.
+export type Database = Pool | PoolClient;
+type NoteRow = Omit<Note, 'createdAt' | 'updatedAt'> & { createdAt: Date; updatedAt: Date };
+const noteColumns = 'n.id, n.project_id AS "projectId", n.title, n.body, n.created_at AS "createdAt", n.updated_at AS "updatedAt"';
+const projectColumns = 'p.id, p.user_id AS "userId", p.name, p.description, count(n.id)::int AS "noteCount"';
+const toNote = (row: NoteRow): Note => ({
+  ...row, createdAt: row.createdAt.toISOString(), updatedAt: row.updatedAt.toISOString(),
+});
+
+export async function listUsers(db: Database) {
+  return (await db.query<User>('SELECT id, name FROM users ORDER BY created_at, id')).rows;
+}
+
+export async function createUser(db: Database, name: string) {
+  return (await db.query<User>('INSERT INTO users (name) VALUES ($1) RETURNING id, name', [name])).rows[0]!;
+}
+
+export async function userExists(db: Database, id: string) {
+  return (await db.query('SELECT id FROM users WHERE id = $1', [id])).rowCount === 1;
+}
+
+export async function listProjects(db: Database, userId: string) {
+  return (await db.query<Project>(`
+    SELECT ${projectColumns} FROM projects p LEFT JOIN notes n ON n.project_id = p.id
+    WHERE p.user_id = $1 GROUP BY p.id ORDER BY p.created_at, p.id`, [userId])).rows;
+}
+
+export async function getProject(db: Database, userId: string, projectId: string) {
+  return (await db.query<Project>(`
+    SELECT ${projectColumns} FROM projects p LEFT JOIN notes n ON n.project_id = p.id
+    WHERE p.user_id = $1 AND p.id = $2 GROUP BY p.id`, [userId, projectId])).rows[0];
+}
+
+export async function createProject(db: Database, userId: string, name: string, description: string) {
+  return (await db.query<Project>(`
+    INSERT INTO projects (user_id, name, description)
+    SELECT id, $2, $3 FROM users WHERE id = $1
+    RETURNING id, user_id AS "userId", name, description, 0 AS "noteCount"`, [userId, name, description])).rows[0];
+}
+
+export async function listNotes(db: Database, projectId: string) {
+  return (await db.query<NoteRow>(`
+    SELECT ${noteColumns} FROM notes n
+    WHERE n.project_id = $1 ORDER BY n.created_at DESC, n.id DESC`, [projectId])).rows.map(toNote);
+}
+
+export async function createNote(db: Database, userId: string, projectId: string, input: NoteInput) {
+  const row = (await db.query<NoteRow>(`
+    INSERT INTO notes AS n (project_id, title, body)
+    SELECT id, $3, $4 FROM projects WHERE user_id = $1 AND id = $2
+    RETURNING ${noteColumns}`, [userId, projectId, input.title, input.body])).rows[0];
+  return row ? toNote(row) : undefined;
+}
+
+export async function updateNote(db: Database, userId: string, projectId: string, noteId: string, input: NoteInput) {
+  const row = (await db.query<NoteRow>(`
+    UPDATE notes n SET title = $4, body = $5, updated_at = clock_timestamp()
+    FROM projects p
+    WHERE n.project_id = p.id AND p.user_id = $1 AND p.id = $2 AND n.id = $3
+    RETURNING ${noteColumns}`, [userId, projectId, noteId, input.title, input.body])).rows[0];
+  return row ? toNote(row) : undefined;
+}
+
+export async function deleteNote(db: Database, userId: string, projectId: string, noteId: string) {
+  return (await db.query(`
+    DELETE FROM notes n USING projects p
+    WHERE n.project_id = p.id AND p.user_id = $1 AND p.id = $2 AND n.id = $3`,
+  [userId, projectId, noteId])).rowCount === 1;
+}

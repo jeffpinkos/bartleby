@@ -1,32 +1,87 @@
 # Bartleby
 
-Bartleby is a personal creative memory for capturing ideas and discovering connections between them.
+A small personal project and note application. Create a user, give an idea a project, and capture, browse, edit, or delete its notes.
 
-The goal is simple: make it easy to throw ideas somewhere, organize them loosely into projects, and eventually use AI to find interesting relationships across accumulated notes without replacing the original material with AI interpretation.
+## Run locally
 
-## Initial Model
+Requirements: Node.js 24, npm, and the existing PostgreSQL 18 container `bartleby-db` with a database named `bartleby`.
 
-Bartleby starts deliberately small:
+```sh
+nvm use
+npm ci
+cp .env.example .env
+# Set DATABASE_URL in .env to match your existing container credentials.
+npm run db:migrate
+npm run dev
+```
 
-- **Users** own projects and notes.
-- **Projects** collect related work.
-- **Notes** contain unstructured ideas and may optionally belong to a project.
+If `.env` already exists, keep it. It is ignored by Git. The initial local setup has already configured it from the existing container.
 
-That's it for now.
+Open [Bartleby](http://127.0.0.1:5173). Vite serves the frontend and proxies `/api` to Fastify on port 3001. `PORT` in `.env` can change the API port. Both application servers bind to localhost. PostgreSQL stays in the existing Docker container.
 
-The data model will grow in response to how the application is actually used rather than trying to define a complete ontology for ideas up front.
+Create a user, create a project, and add a note. Refresh to see it persist. The browser remembers the selected user and project; all users, projects, and saved notes live in PostgreSQL. Note titles and project descriptions are optional. Note bodies are plain text, with line breaks and indentation preserved. Editing uses an explicit **Save changes** button. Deletion requires confirmation, and navigation warns before discarding a draft.
 
-## Principles
+User selection is a local convenience, not authentication. Anyone who can reach the API can select any user. This version is intended for local development only.
 
-- Capture should be frictionless.
-- Notes don't need to be categorized before they're useful.
-- User-authored material is the source of truth.
-- AI-generated interpretations should remain distinguishable from user-authored material.
-- Prefer simple structures that can evolve over speculative abstractions.
+## Commands
 
-## Status
+| Command | Purpose |
+| --- | --- |
+| `npm run dev` | Start frontend and API with reload |
+| `npm run db:migrate` | Apply pending migrations |
+| `npm run typecheck` | Check frontend and backend TypeScript |
+| `npm test` | Run integration tests against the migrated PostgreSQL database |
+| `npm run build` | Type-check and build the frontend and server |
+| `npm start` | Serve the built application at http://127.0.0.1:3001 |
 
-Very early development. Currently establishing the core application, data model, and basic project/note workflow.
+Integration tests use a transaction and roll back their fixtures. Run migrations before testing. They verify CRUD, input validation, user/project scoping, and database constraints using real PostgreSQL.
+
+## Structure
+
+```text
+client/      React UI, plain CSS, native fetch
+server/      Fastify routes and parameterized PostgreSQL queries
+shared/      API data types
+migrations/  Versioned SQL schema changes
+scripts/     Migration entry point
+```
+
+One repository, one backend, one database. Ordinary functions keep HTTP handling separate from SQL. Extract business rules into separate functions when there are rules worth extracting.
+
+## Data model
+
+```text
+User
+└── Project
+    └── Note
+```
+
+- `users`: UUID, name, creation time.
+- `projects`: UUID, required user, name, optional description, creation time.
+- `notes`: UUID, required project, optional title, body, creation and modification times.
+
+Foreign keys preserve these relationships. Indexes support listing projects per user and notes per project. Notes appear newest first by creation time. There is no separate note owner; ownership comes from the project.
+
+## Schema changes
+
+All schema changes go through `node-pg-migrate`. Create a migration with `npx node-pg-migrate create descriptive-name -j sql`, write its `Up Migration` and `Down Migration` sections, then run `npm run db:migrate`. Review the generated SQL file before applying it. Applied migrations are recorded in `pgmigrations`; repeat runs apply only pending files. Once a migration is applied, add a new migration to change the schema instead of editing the old one. No schema synchronization or schema changes occur at server startup.
+
+## HTTP API
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| GET | `/api/health` | Check API/database connectivity |
+| GET, POST | `/api/users` | List or create users |
+| GET, POST | `/api/users/:userId/projects` | List or create projects |
+| GET | `/api/users/:userId/projects/:projectId` | Get a project and its notes |
+| POST | `/api/users/:userId/projects/:projectId/notes` | Create a note |
+| PATCH, DELETE | `/api/users/:userId/projects/:projectId/notes/:noteId` | Edit or delete a note |
+
+Create a user with `{ "name": "Jeff" }`, a project with `{ "name": "Field notes", "description": "" }`, and a note with `{ "title": "", "body": "An idea." }`. Editing sends the complete note body and optional title. API routes validate input and reject mismatched user/project/note IDs; this relationship check is not an authentication boundary.
+
+## Scope
+
+The MVP includes user creation, project creation/listing, project detail, and note creation/editing/deletion. AI, collaboration, roles, tags, project hierarchies, real-time synchronization, and elaborate authentication are outside this version. Add infrastructure and abstractions only in response to a concrete need.
 
 ## License
 
