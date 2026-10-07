@@ -27,6 +27,43 @@ export function Workspace({
   const [dirtyForms, setDirtyForms] = useState(() => new Set<string>());
   const { confirmDiscard, dialog } = useConfirmDiscard();
 
+  useEffect(() => {
+    function handleShortcut(event: KeyboardEvent) {
+      if (
+        event.defaultPrevented ||
+        event.repeat ||
+        event.ctrlKey ||
+        event.metaKey ||
+        event.altKey ||
+        (event.target instanceof Element &&
+          event.target.closest(
+            'input, textarea, select, button, a, [contenteditable="true"], [role="textbox"]',
+          ))
+      ) {
+        return;
+      }
+
+      if (event.key === "n" && mode === "view" && !busy) {
+        const composer = document.querySelector<HTMLTextAreaElement>(
+          '.note-form[aria-label="New note"] textarea',
+        );
+        if (composer) {
+          event.preventDefault();
+          composer.focus();
+        }
+      } else if (event.key === "/" && !busy) {
+        const search = document.getElementById("note-search");
+        if (search instanceof HTMLInputElement && !search.disabled) {
+          event.preventDefault();
+          search.focus();
+        }
+      }
+    }
+
+    window.addEventListener("keydown", handleShortcut);
+    return () => window.removeEventListener("keydown", handleShortcut);
+  }, [busy, mode]);
+
   const onDirtyChange = useCallback((id: string, dirty: boolean) => {
     setDirtyForms((current) => {
       if (current.has(id) === dirty) return current;

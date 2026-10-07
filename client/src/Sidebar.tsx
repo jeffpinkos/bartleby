@@ -55,6 +55,7 @@ export function Sidebar({
         <input
           id="note-search"
           type="search"
+          aria-keyshortcuts="/"
           maxLength={200}
           placeholder="Search notes…"
           value={query}

@@ -71,6 +71,7 @@ export function NoteForm({
         </label>
         <textarea
           id={`${fieldId}-body`}
+          aria-keyshortcuts={initial ? undefined : "n"}
           required
           maxLength={100000}
           rows={6}

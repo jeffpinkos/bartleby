@@ -27,6 +27,8 @@ Use **Search notes** in the sidebar to find text in saved note titles and bodies
 
 Use **Export Markdown** in the sidebar to download all of the selected user's projects, descriptions, notes, and timestamps in one `bartleby-export.md` file. Note bodies are placed in fenced text blocks to preserve line breaks and indentation.
 
+For quick keyboard access, press **N** to focus the new-note composer or **/** to focus search. Shortcuts stay inactive while you are typing or using a control.
+
 User selection is a local convenience, not authentication. Anyone who can reach the API can select any user. This version is intended for local development only.
 
 ## Commands
