@@ -122,6 +122,13 @@ export function Sidebar({
       <div className="profile">
         <span className="avatar">{user.name.slice(0, 1).toUpperCase()}</span>
         <span className="profile-name">{user.name}</span>
+        <a
+          className="small-button export-button"
+          href={`/api/users/${user.id}/export.md`}
+          download="bartleby-export.md"
+        >
+          Export Markdown
+        </a>
         <button
           className="small-button"
           onClick={onSwitchUser}

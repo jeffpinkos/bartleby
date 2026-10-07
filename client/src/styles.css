@@ -262,6 +262,18 @@ time {
   padding: 10px 14px;
   white-space: nowrap;
 }
+.export-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: inherit;
+  text-decoration: none;
+  border: 1px solid #bec3b7;
+  border-radius: 5px;
+}
+.export-button:hover {
+  background: #e7e9e0;
+}
 .workspace {
   min-width: 0;
   padding: 68px clamp(40px, 6.77vw, 130px) 90px clamp(50px, 13.15vw, 240px);

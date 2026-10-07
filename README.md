@@ -25,6 +25,8 @@ Use **Move to project…** on a saved note to choose another project belonging t
 
 Use **Search notes** in the sidebar to find text in saved note titles and bodies across your projects. Searches ignore case and treat punctuation literally. Results show the project name and an excerpt; select one to open, scroll to, and focus that note. **Back to search results** refreshes the results after edits. Leaving an unsaved draft still requires confirmation. Broad searches show the newest 50 matches and suggest narrowing the query.
 
+Use **Export Markdown** in the sidebar to download all of the selected user's projects, descriptions, notes, and timestamps in one `bartleby-export.md` file. Note bodies are placed in fenced text blocks to preserve line breaks and indentation.
+
 User selection is a local convenience, not authentication. Anyone who can reach the API can select any user. This version is intended for local development only.
 
 ## Commands
@@ -80,6 +82,7 @@ All schema changes go through `node-pg-migrate`. Create a migration with `npx no
 | ------------- | ----------------------------------------------------------- | ------------------------------------------------------------ |
 | GET           | `/api/health`                                               | Check API/database connectivity                              |
 | GET, POST     | `/api/users`                                                | List or create users                                         |
+| GET           | `/api/users/:userId/export.md`                              | Download the user's projects and notes as Markdown          |
 | GET, POST     | `/api/users/:userId/projects`                               | List or create projects                                      |
 | GET           | `/api/users/:userId/notes/search?q=phrase`                  | Search saved note titles and bodies across a user's projects |
 | GET           | `/api/users/:userId/projects/:projectId`                    | Get a project and its notes                                  |

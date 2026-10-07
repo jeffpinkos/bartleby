@@ -1,6 +1,7 @@
 import Fastify from "fastify";
 import type { NoteInput, ProjectInput } from "../shared/types.js";
 import * as queries from "./queries.js";
+import { renderMarkdownExport } from "./markdown.js";
 
 type UserParams = { userId: string };
 type ProjectParams = UserParams & { projectId: string };
@@ -99,6 +100,19 @@ export function buildApp(db: queries.Database, logger = false) {
       return {
         projects: await queries.listProjects(db, request.params.userId),
       };
+    },
+  );
+
+  app.get<{ Params: UserParams }>(
+    "/api/users/:userId/export.md",
+    { schema: { params: userParams } },
+    async (request, reply) => {
+      const data = await queries.getUserExport(db, request.params.userId);
+      if (!data) return reply.code(404).send({ message: "User not found." });
+      return reply
+        .type("text/markdown; charset=utf-8")
+        .header("Content-Disposition", 'attachment; filename="bartleby-export.md"')
+        .send(renderMarkdownExport(data));
     },
   );
 

@@ -15,6 +15,14 @@ type NoteRow = Omit<Note, "createdAt" | "updatedAt"> & {
   createdAt: Date;
   updatedAt: Date;
 };
+export interface UserExport {
+  name: string;
+  projects: Array<{
+    name: string;
+    description: string;
+    notes: Note[];
+  }>;
+}
 const noteColumns =
   'n.id, n.project_id AS "projectId", n.title, n.body, n.created_at AS "createdAt", n.updated_at AS "updatedAt"';
 const projectColumns =
@@ -116,6 +124,60 @@ export async function listNotes(db: Database, projectId: string) {
       [projectId],
     )
   ).rows.map(toNote);
+}
+
+export async function getUserExport(
+  db: Database,
+  userId: string,
+): Promise<UserExport | undefined> {
+  type ExportRow = {
+    userName: string;
+    projectId: string | null;
+    projectName: string | null;
+    description: string | null;
+    id: string | null;
+    title: string | null;
+    body: string | null;
+    createdAt: Date | null;
+    updatedAt: Date | null;
+  };
+  const rows = (
+    await db.query<ExportRow>(
+      `
+    SELECT u.name AS "userName", p.id AS "projectId", p.name AS "projectName", p.description,
+      n.id, n.title, n.body, n.created_at AS "createdAt", n.updated_at AS "updatedAt"
+    FROM users u
+    LEFT JOIN projects p ON p.user_id = u.id
+    LEFT JOIN notes n ON n.project_id = p.id
+    WHERE u.id = $1
+    ORDER BY p.created_at, p.id, n.created_at DESC, n.id DESC`,
+      [userId],
+    )
+  ).rows;
+  if (rows.length === 0) return undefined;
+
+  const result: UserExport = { name: rows[0]!.userName, projects: [] };
+  let currentProjectId: string | null = null;
+  for (const row of rows) {
+    if (row.projectId === null) continue;
+    let project = result.projects.at(-1);
+    if (!project || currentProjectId !== row.projectId) {
+      project = { name: row.projectName!, description: row.description!, notes: [] };
+      result.projects.push(project);
+      currentProjectId = row.projectId;
+    }
+    if (row.id !== null) {
+      project.notes.push({
+        id: row.id,
+        projectId: row.projectId,
+        title: row.title!,
+        body: row.body!,
+        createdAt: row.createdAt!.toISOString(),
+        updatedAt: row.updatedAt!.toISOString(),
+      });
+    }
+  }
+  return result;
 }
 
 export async function searchNotes(
