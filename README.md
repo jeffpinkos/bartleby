@@ -29,15 +29,15 @@ User selection is a local convenience, not authentication. Anyone who can reach 
 
 ## Commands
 
-| Command | Purpose |
-| --- | --- |
-| `npm run dev` | Start frontend and API with reload |
-| `npm run db:migrate` | Apply pending migrations |
-| `npm run typecheck` | Check frontend and backend TypeScript |
-| `npm test` | Run integration tests against the migrated PostgreSQL database |
-| `npm run test:e2e` | Build the app and run the browser workflow on desktop and mobile Chromium |
-| `npm run build` | Type-check and build the frontend and server |
-| `npm start` | Serve the built application at http://127.0.0.1:3001 |
+| Command              | Purpose                                                                   |
+| -------------------- | ------------------------------------------------------------------------- |
+| `npm run dev`        | Start frontend and API with reload                                        |
+| `npm run db:migrate` | Apply pending migrations                                                  |
+| `npm run typecheck`  | Check frontend and backend TypeScript                                     |
+| `npm test`           | Run integration tests against the migrated PostgreSQL database            |
+| `npm run test:e2e`   | Build the app and run the browser workflow on desktop and mobile Chromium |
+| `npm run build`      | Type-check and build the frontend and server                              |
+| `npm start`          | Serve the built application at http://127.0.0.1:3001                      |
 
 Integration tests use a transaction and roll back their fixtures. Run migrations before testing. They verify CRUD, input validation, user/project scoping, note moves with content and timestamp preservation, note search, and database constraints using real PostgreSQL.
 
@@ -76,17 +76,17 @@ All schema changes go through `node-pg-migrate`. Create a migration with `npx no
 
 ## HTTP API
 
-| Method | Path | Purpose |
-| --- | --- | --- |
-| GET | `/api/health` | Check API/database connectivity |
-| GET, POST | `/api/users` | List or create users |
-| GET, POST | `/api/users/:userId/projects` | List or create projects |
-| GET | `/api/users/:userId/notes/search?q=phrase` | Search saved note titles and bodies across a user's projects |
-| GET | `/api/users/:userId/projects/:projectId` | Get a project and its notes |
-| PATCH | `/api/users/:userId/projects/:projectId` | Rename a project or update its description |
-| POST | `/api/users/:userId/projects/:projectId/notes` | Create a note |
-| PATCH, DELETE | `/api/users/:userId/projects/:projectId/notes/:noteId` | Edit or delete a note |
-| POST | `/api/users/:userId/projects/:projectId/notes/:noteId/move` | Move a note to another project belonging to the same user |
+| Method        | Path                                                        | Purpose                                                      |
+| ------------- | ----------------------------------------------------------- | ------------------------------------------------------------ |
+| GET           | `/api/health`                                               | Check API/database connectivity                              |
+| GET, POST     | `/api/users`                                                | List or create users                                         |
+| GET, POST     | `/api/users/:userId/projects`                               | List or create projects                                      |
+| GET           | `/api/users/:userId/notes/search?q=phrase`                  | Search saved note titles and bodies across a user's projects |
+| GET           | `/api/users/:userId/projects/:projectId`                    | Get a project and its notes                                  |
+| PATCH         | `/api/users/:userId/projects/:projectId`                    | Rename a project or update its description                   |
+| POST          | `/api/users/:userId/projects/:projectId/notes`              | Create a note                                                |
+| PATCH, DELETE | `/api/users/:userId/projects/:projectId/notes/:noteId`      | Edit or delete a note                                        |
+| POST          | `/api/users/:userId/projects/:projectId/notes/:noteId/move` | Move a note to another project belonging to the same user    |
 
 Create a user with `{ "name": "Jeff" }`, a project with `{ "name": "Field notes", "description": "" }`, and a note with `{ "title": "", "body": "An idea." }`. Editing sends the complete note body and optional title. API routes validate input and reject mismatched user/project/note IDs; this relationship check is not an authentication boundary.
 
