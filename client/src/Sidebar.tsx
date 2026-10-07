@@ -26,6 +26,8 @@ export function Sidebar({
   onNew,
   onSwitchUser,
   onSearch,
+  onShowArchive,
+  archivedProjectCount,
 }: {
   user: User;
   projects: Project[];
@@ -35,6 +37,8 @@ export function Sidebar({
   onNew: () => void;
   onSwitchUser: () => void;
   onSearch: (query: string) => void;
+  onShowArchive: () => void;
+  archivedProjectCount: number;
 }) {
   const [query, setQuery] = useState("");
   return (
@@ -78,6 +82,13 @@ export function Sidebar({
             <Plus />
           </button>
         </div>
+        <button
+          className="archive-link text-button"
+          onClick={onShowArchive}
+          disabled={disabled}
+        >
+          Archived projects <span className="note-count">{archivedProjectCount}</span>
+        </button>
         <ul className="project-list">
           {projects.map((project) => (
             <li key={project.id}>

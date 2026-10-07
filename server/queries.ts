@@ -23,10 +23,11 @@ export interface UserExport {
     notes: Note[];
   }>;
 }
+type ProjectUpdate = Partial<ProjectInput> & { archived?: boolean };
 const noteColumns =
   'n.id, n.project_id AS "projectId", n.title, n.body, n.created_at AS "createdAt", n.updated_at AS "updatedAt"';
 const projectColumns =
-  'p.id, p.user_id AS "userId", p.name, p.description, count(n.id)::int AS "noteCount"';
+  'p.id, p.user_id AS "userId", p.name, p.description, p.archived, count(n.id)::int AS "noteCount"';
 const toNote = (row: NoteRow): Note => ({
   ...row,
   createdAt: row.createdAt.toISOString(),
@@ -54,13 +55,17 @@ export async function userExists(db: Database, id: string) {
   );
 }
 
-export async function listProjects(db: Database, userId: string) {
+export async function listProjects(
+  db: Database,
+  userId: string,
+  archived = false,
+) {
   return (
     await db.query<Project>(
       `
     SELECT ${projectColumns} FROM projects p LEFT JOIN notes n ON n.project_id = p.id
-    WHERE p.user_id = $1 GROUP BY p.id ORDER BY p.created_at, p.id`,
-      [userId],
+    WHERE p.user_id = $1 AND p.archived = $2 GROUP BY p.id ORDER BY p.created_at, p.id`,
+      [userId, archived],
     )
   ).rows;
 }
@@ -91,7 +96,7 @@ export async function createProject(
       `
     INSERT INTO projects (user_id, name, description)
     SELECT id, $2, $3 FROM users WHERE id = $1
-    RETURNING id, user_id AS "userId", name, description, 0 AS "noteCount"`,
+    RETURNING id, user_id AS "userId", name, description, archived, 0 AS "noteCount"`,
       [userId, name, description],
     )
   ).rows[0];
@@ -101,16 +106,17 @@ export async function updateProject(
   db: Database,
   userId: string,
   projectId: string,
-  input: Partial<ProjectInput>,
+  input: ProjectUpdate,
 ) {
   return (
     await db.query<Project>(
       `
-    UPDATE projects p SET name = coalesce($3, p.name), description = coalesce($4, p.description)
+    UPDATE projects p SET name = coalesce($3, p.name), description = coalesce($4, p.description),
+      archived = coalesce($5, p.archived)
     WHERE p.user_id = $1 AND p.id = $2
     RETURNING p.id, p.user_id AS "userId", p.name, p.description,
-      (SELECT count(*)::int FROM notes WHERE project_id = p.id) AS "noteCount"`,
-      [userId, projectId, input.name, input.description],
+      p.archived, (SELECT count(*)::int FROM notes WHERE project_id = p.id) AS "noteCount"`,
+      [userId, projectId, input.name, input.description, input.archived],
     )
   ).rows[0];
 }
@@ -192,7 +198,8 @@ export async function searchNotes(
       `
     SELECT n.id, n.project_id AS "projectId", p.name AS "projectName", n.title, n.body
     FROM notes n JOIN projects p ON p.id = n.project_id
-    WHERE p.user_id = $1 AND (n.title ILIKE $2 ESCAPE '!' OR n.body ILIKE $2 ESCAPE '!')
+    WHERE p.user_id = $1 AND p.archived = false
+      AND (n.title ILIKE $2 ESCAPE '!' OR n.body ILIKE $2 ESCAPE '!')
     ORDER BY n.created_at DESC, n.id DESC LIMIT 51`,
       [userId, pattern],
     )

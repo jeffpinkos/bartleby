@@ -6,6 +6,8 @@ import { renderMarkdownExport } from "./markdown.js";
 type UserParams = { userId: string };
 type ProjectParams = UserParams & { projectId: string };
 type NoteParams = ProjectParams & { noteId: string };
+type ProjectListQuery = { archived?: "true" | "false" };
+type ProjectUpdate = Partial<ProjectInput> & { archived?: boolean };
 const uuid = { type: "string", format: "uuid" };
 const userParams = {
   type: "object",
@@ -91,14 +93,27 @@ export function buildApp(db: queries.Database, logger = false) {
     },
   );
 
-  app.get<{ Params: UserParams }>(
+  app.get<{ Params: UserParams; Querystring: ProjectListQuery }>(
     "/api/users/:userId/projects",
-    { schema: { params: userParams } },
+    {
+      schema: {
+        params: userParams,
+        querystring: {
+          type: "object",
+          additionalProperties: false,
+          properties: { archived: { type: "string", enum: ["true", "false"] } },
+        },
+      },
+    },
     async (request, reply) => {
       if (!(await queries.userExists(db, request.params.userId)))
         return reply.code(404).send({ message: "User not found." });
       return {
-        projects: await queries.listProjects(db, request.params.userId),
+        projects: await queries.listProjects(
+          db,
+          request.params.userId,
+          request.query.archived === "true",
+        ),
       };
     },
   );
@@ -183,7 +198,7 @@ export function buildApp(db: queries.Database, logger = false) {
     },
   );
 
-  app.patch<{ Params: ProjectParams; Body: Partial<ProjectInput> }>(
+  app.patch<{ Params: ProjectParams; Body: ProjectUpdate }>(
     projectPath,
     {
       schema: {
@@ -192,7 +207,7 @@ export function buildApp(db: queries.Database, logger = false) {
           type: "object",
           minProperties: 1,
           additionalProperties: false,
-          properties: projectProperties,
+          properties: { ...projectProperties, archived: { type: "boolean" } },
         },
       },
     },
@@ -204,6 +219,7 @@ export function buildApp(db: queries.Database, logger = false) {
         {
           name: request.body.name?.trim(),
           description: request.body.description?.trim(),
+          archived: request.body.archived,
         },
       );
       if (!project)

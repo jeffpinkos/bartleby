@@ -170,6 +170,7 @@ time {
   padding-inline: 10px;
 }
 .project-navigation {
+  flex: 1;
   min-height: 0;
   overflow-y: auto;
 }
@@ -236,9 +237,25 @@ time {
   margin-top: auto;
   padding: 24px 8px 0;
   border-top: 1px solid var(--border);
-  display: flex;
+  display: grid;
+  grid-template-columns: 46px minmax(0, 1fr);
   align-items: center;
   gap: 12px;
+}
+.profile .avatar {
+  grid-column: 1;
+  grid-row: 1;
+}
+.profile-name {
+  grid-column: 2;
+  grid-row: 1;
+  flex: none;
+}
+.profile > .export-button,
+.profile > button {
+  grid-column: 1 / -1;
+  width: 100%;
+  text-align: center;
 }
 .avatar {
   display: grid;
@@ -297,6 +314,51 @@ time {
 .project-heading > button {
   flex-shrink: 0;
   margin-top: 12px;
+}
+.project-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 12px;
+}
+.project-heading .project-actions > button {
+  margin-top: 0;
+}
+.archive-list {
+  list-style: none;
+  padding: 0;
+  border-top: 1px solid var(--border);
+}
+.archive-list > li {
+  border-bottom: 1px solid var(--border);
+}
+.archive-project {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 20px;
+  padding: 20px 12px;
+}
+.archive-project h2 {
+  font-size: 20px;
+  margin: 0;
+}
+.archive-project p {
+  margin: 6px 0;
+  color: var(--muted);
+  white-space: pre-wrap;
+}
+.archive-project button {
+  flex-shrink: 0;
+}
+.archive-link {
+  display: flex;
+  justify-content: space-between;
+  width: 100%;
+  padding: 12px;
+  margin: 0 0 8px;
+  text-align: left;
 }
 .subtitle {
   margin-top: 6px;
@@ -698,6 +760,7 @@ time {
   .profile {
     grid-row: 1;
     grid-column: 2;
+    display: flex;
     border: 0;
     padding: 0;
     margin: 0;
@@ -715,6 +778,7 @@ time {
     display: flex;
     gap: 12px;
     overflow: visible;
+    flex-wrap: wrap;
   }
   .project-list,
   .nav-heading,
@@ -736,6 +800,10 @@ time {
     font-size: 14px;
     flex-shrink: 0;
     gap: 6px;
+  }
+  .project-navigation .archive-link {
+    flex-basis: 100%;
+    margin: 0;
   }
   .workspace {
     padding: 36px 24px 65px;

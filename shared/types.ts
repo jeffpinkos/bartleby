@@ -9,6 +9,7 @@ export interface Project {
   name: string;
   description: string;
   noteCount: number;
+  archived: boolean;
 }
 
 export interface Note {

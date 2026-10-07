@@ -5,6 +5,7 @@ import { Sidebar } from "./Sidebar";
 import { ProjectForm } from "./ProjectForm";
 import { ProjectView } from "./ProjectView";
 import { SearchView } from "./SearchView";
+import { ArchiveView } from "./ArchiveView";
 import { useConfirmDiscard } from "./DiscardDialog";
 
 export function Workspace({
@@ -15,10 +16,13 @@ export function Workspace({
   onSwitchUser: () => void;
 }) {
   const [projects, setProjects] = useState<Project[] | null>(null);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [mode, setMode] = useState<"view" | "create" | "edit" | "search">(
-    "view",
+  const [archivedProjects, setArchivedProjects] = useState<Project[] | null>(
+    null,
   );
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [mode, setMode] = useState<
+    "view" | "create" | "edit" | "search" | "archive"
+  >("view");
   const [search, setSearch] = useState({ query: "", version: 0 });
   const [targetNoteId, setTargetNoteId] = useState<string | null>(null);
   const [error, setError] = useState("");
@@ -102,11 +106,18 @@ export function Workspace({
   useEffect(() => {
     const controller = new AbortController();
     setError("");
-    void api<{ projects: Project[] }>(`/users/${user.id}/projects`, {
-      signal: controller.signal,
-    })
-      .then(({ projects: items }) => {
+    void Promise.all([
+      api<{ projects: Project[] }>(`/users/${user.id}/projects`, {
+        signal: controller.signal,
+      }),
+      api<{ projects: Project[] }>(
+        `/users/${user.id}/projects?archived=true`,
+        { signal: controller.signal },
+      ),
+    ])
+      .then(([{ projects: items }, { projects: archivedItems }]) => {
         setProjects(items);
+        setArchivedProjects(archivedItems);
         const remembered = readPreference(`project.${user.id}`);
         setSelectedId(
           items.find((project) => project.id === remembered)?.id ??
@@ -157,14 +168,20 @@ export function Workspace({
       <Sidebar
         user={user}
         projects={projects ?? []}
-        selectedId={mode === "create" || mode === "search" ? null : selectedId}
-        disabled={busy || !projects}
+        selectedId={
+          mode === "create" || mode === "search" || mode === "archive"
+            ? null
+            : selectedId
+        }
+        disabled={busy || !projects || !archivedProjects}
         onSelect={selectProject}
         onNew={() => {
           if (mode !== "create") navigate(() => setMode("create"));
         }}
         onSwitchUser={() => navigate(onSwitchUser)}
         onSearch={searchNotes}
+        onShowArchive={() => navigate(() => setMode("archive"))}
+        archivedProjectCount={archivedProjects?.length ?? 0}
       />
       <main className="workspace" id="main-content">
         {error ? (
@@ -175,7 +192,7 @@ export function Workspace({
               Try again
             </button>
           </div>
-        ) : !projects ? (
+        ) : !projects || !archivedProjects ? (
           <p role="status">Opening your projects…</p>
         ) : mode === "search" ? (
           <SearchView
@@ -183,6 +200,36 @@ export function Workspace({
             userId={user.id}
             query={search.query}
             onOpen={openSearchResult}
+          />
+        ) : mode === "archive" ? (
+          <ArchiveView
+            projects={archivedProjects}
+            busy={busy}
+            onRestore={(project) => {
+              setError("");
+              setBusy(true);
+              void api<{ project: Project }>(
+                `/users/${user.id}/projects/${project.id}`,
+                { method: "PATCH", body: JSON.stringify({ archived: false }) },
+              )
+                .then(async ({ project: restored }) => {
+                  const { projects: activeProjects } =
+                    await api<{ projects: Project[] }>(
+                      `/users/${user.id}/projects`,
+                    );
+                  setProjects(activeProjects);
+                  setArchivedProjects(
+                    (current) =>
+                      current?.filter((item) => item.id !== restored.id) ?? [],
+                  );
+                  setSelectedId(restored.id);
+                  setTargetNoteId(null);
+                  savePreference(`project.${user.id}`, restored.id);
+                  setMode("view");
+                })
+                .catch((reason: unknown) => setError(errorMessage(reason)))
+                .finally(() => setBusy(false));
+            }}
           />
         ) : mode === "create" || mode === "edit" ? (
           <ProjectForm
@@ -223,6 +270,28 @@ export function Workspace({
             onNoteCountChange={onNoteCountChange}
             onNoteMoved={onNoteMoved}
             onEdit={() => navigate(() => setMode("edit"))}
+            onArchive={() =>
+              navigate(() => {
+                setError("");
+                setBusy(true);
+                void api<{ project: Project }>(
+                  `/users/${user.id}/projects/${selected.id}`,
+                  { method: "PATCH", body: JSON.stringify({ archived: true }) },
+                )
+                  .then(({ project: archived }) => {
+                    const remaining = projects.filter((item) => item.id !== archived.id);
+                    setProjects(remaining);
+                    setArchivedProjects((current) => [...(current ?? []), archived]);
+                    const next = remaining[0];
+                    setSelectedId(next?.id ?? null);
+                    if (next) savePreference(`project.${user.id}`, next.id);
+                    setTargetNoteId(null);
+                    setMode(next ? "view" : "create");
+                  })
+                  .catch((reason: unknown) => setError(errorMessage(reason)))
+                  .finally(() => setBusy(false));
+              })
+            }
           />
         ) : null}
       </main>

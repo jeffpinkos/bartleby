@@ -17,6 +17,7 @@ export function ProjectView({
   onNoteCountChange,
   onNoteMoved,
   onEdit,
+  onArchive,
 }: {
   userId: string;
   project: Project;
@@ -31,6 +32,7 @@ export function ProjectView({
   onDirtyChange: DraftChange;
   onNoteCountChange: (projectId: string, count: number) => void;
   onEdit: () => void;
+  onArchive: () => void;
   targetNoteId: string | null;
   onBackToSearch?: () => void;
 }) {
@@ -158,9 +160,14 @@ export function ProjectView({
             <p className="subtitle">{project.description}</p>
           ) : null}
         </div>
-        <button className="small-button" onClick={onEdit} disabled={busy}>
-          Edit project
-        </button>
+        <div className="project-actions">
+          <button className="small-button" onClick={onEdit} disabled={busy}>
+            Edit project
+          </button>
+          <button className="small-button" onClick={onArchive} disabled={busy}>
+            Archive project
+          </button>
+        </div>
       </header>
       {error ? (
         <div className="error-panel" role="alert">
