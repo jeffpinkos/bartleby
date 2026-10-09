@@ -4,7 +4,7 @@ A small personal project and note application. Create a user, give an idea a pro
 
 ## Run locally
 
-Requirements: Node.js 24, npm, and the existing PostgreSQL 18 container `bartleby-db` with a database named `bartleby`.
+Requirements: Node.js 24, npm, and the existing PostgreSQL 18 container `bartleby-db` with a database named `bartleby`. Installation enforces Node 24, and every npm command checks the runtime first. If your terminal is using another version, run `nvm use` in this directory.
 
 ```sh
 nvm use
@@ -15,7 +15,7 @@ npm run db:migrate
 npm run dev
 ```
 
-If `.env` already exists, keep it. It is ignored by Git. The initial local setup has already configured it from the existing container.
+If `.env` already exists, keep it. It is ignored by Git. The initial local setup has already configured it from the existing container. Startup checks for pending migrations before opening the API port. If migrations are pending, run `npm run db:migrate` and restart; startup only reads migration history and never changes the schema.
 
 Open [Bartleby](http://127.0.0.1:5173). Vite serves the frontend and proxies `/api` to Fastify on port 3001. `PORT` in `.env` can change the API port. Both application servers bind to localhost. PostgreSQL stays in the existing Docker container.
 
@@ -31,9 +31,15 @@ Use **Sort notes** above the note list to choose **Newest first** (the default) 
 
 Use **Export Markdown** in the sidebar to download all of the selected user's active and archived projects, descriptions, notes, and timestamps in one `bartleby-export.md` file. Note bodies are placed in fenced text blocks to preserve line breaks and indentation.
 
+Requests have a 15-second deadline. A stalled save releases the controls and preserves the draft. If a write times out or loses its connection, it may already have been saved; check the project before trying again. Writes are never retried automatically. Archive/restore errors stay on the current screen so you can retry the action, and a successful restore uses the saved response directly.
+
 For quick keyboard access, press **N** to focus the new-note composer or **/** to focus search. Shortcuts stay inactive while you are typing or using a control.
 
 User selection is a local convenience, not authentication. Anyone who can reach the API can select any user. This version is intended for local development only.
+
+## Backup and restore
+
+Follow [the PostgreSQL backup and restore guide](docs/backup-and-restore.md) to preserve the complete database, including archive state and migration history. The guide restores into a separate database for verification and recovery. Its dump/restore workflow has been checked against the local PostgreSQL 18 container.
 
 ## Commands
 
@@ -47,9 +53,9 @@ User selection is a local convenience, not authentication. Anyone who can reach 
 | `npm run build`      | Type-check and build the frontend and server                              |
 | `npm start`          | Serve the built application at http://127.0.0.1:3001                      |
 
-Integration tests use a transaction and roll back their fixtures. Run migrations before testing. They verify CRUD, input validation, user/project scoping, note moves with content and timestamp preservation, note search, archive/restore with note preservation, archive input validation and user scoping, archived-note export, and database constraints using real PostgreSQL.
+Setup tests check Node versions and read-only migration readiness for fresh, partial, and current schemas. Integration tests use a transaction and roll back their fixtures. Run migrations before testing. They verify CRUD, input validation, user/project scoping, note moves with content and timestamp preservation, note search, archive/restore with note preservation, archive input validation and user scoping, archived-note export, and database constraints using real PostgreSQL.
 
-Install the browser once with `npx playwright install chromium`, then run `npm run test:e2e`. The suite starts its own compiled application on localhost port 3101. Each test creates a uniquely named user and cleans up only that user's records after each run, including assertion failures. The workflows cover note creation/refresh/edit/deletion, project editing, note moves, and search with result navigation, draft protection, failed-request retry, and pending requests. They also cover archive/restore across reloads, archive draft protection, and note sorting after edits with draft and preference preservation. Tests use the same migrated database from `.env`; they do not reset the database. Keep port 3101 free. Playwright stops its server when the run ends, so your normal development servers can keep running. Failure screenshots and traces go to your OS temporary directory under `bartleby-playwright`, outside the repository.
+Install the browser once with `npx playwright install chromium`, then run `npm run test:e2e`. The suite starts its own compiled application on localhost port 3101. Each test creates a uniquely named user and cleans up only that user's records after each run, including assertion failures. The workflows cover note creation/refresh/edit/deletion, project editing, note moves, and search with result navigation, draft protection, failed-request retry, and pending requests. They also cover archive/restore across reloads, archive draft protection, note sorting after edits with draft and preference preservation, stalled saves without automatic write retries, and failed archive/restore actions with manual recovery. Tests use the same migrated database from `.env`; they do not reset the database. Keep port 3101 free. Playwright stops its server when the run ends, so your normal development servers can keep running. Failure screenshots and traces go to your OS temporary directory under `bartleby-playwright`, outside the repository.
 
 ## Structure
 
@@ -58,7 +64,7 @@ client/      React UI, plain CSS, native fetch
 server/      Fastify routes and parameterized PostgreSQL queries
 shared/      API data types
 migrations/  Versioned SQL schema changes
-scripts/     Migration entry point
+scripts/     Migration entry point and runtime check
 e2e/         Repeatable browser smoke test
 ```
 

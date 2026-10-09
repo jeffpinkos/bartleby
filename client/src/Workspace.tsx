@@ -25,7 +25,8 @@ export function Workspace({
   >("view");
   const [search, setSearch] = useState({ query: "", version: 0 });
   const [targetNoteId, setTargetNoteId] = useState<string | null>(null);
-  const [error, setError] = useState("");
+  const [loadError, setLoadError] = useState("");
+  const [actionError, setActionError] = useState("");
   const [attempt, setAttempt] = useState(0);
   const [busy, setBusy] = useState(false);
   const [dirtyForms, setDirtyForms] = useState(() => new Set<string>());
@@ -105,7 +106,8 @@ export function Workspace({
 
   useEffect(() => {
     const controller = new AbortController();
-    setError("");
+    setLoadError("");
+    setActionError("");
     void Promise.all([
       api<{ projects: Project[] }>(`/users/${user.id}/projects`, {
         signal: controller.signal,
@@ -116,6 +118,7 @@ export function Workspace({
       ),
     ])
       .then(([{ projects: items }, { projects: archivedItems }]) => {
+        if (controller.signal.aborted) return;
         setProjects(items);
         setArchivedProjects(archivedItems);
         const remembered = readPreference(`project.${user.id}`);
@@ -127,13 +130,17 @@ export function Workspace({
         setMode(items.length === 0 ? "create" : "view");
       })
       .catch((reason: unknown) => {
-        if (!controller.signal.aborted) setError(errorMessage(reason));
+        if (!controller.signal.aborted) setLoadError(errorMessage(reason));
       });
     return () => controller.abort();
   }, [user.id, attempt]);
 
   function navigate(action: () => void) {
-    if (!busy) confirmDiscard(dirtyForms.size > 0, action);
+    if (!busy)
+      confirmDiscard(dirtyForms.size > 0, () => {
+        setActionError("");
+        action();
+      });
   }
   function selectProject(id: string) {
     if (id === selectedId && mode === "view") return;
@@ -158,6 +165,60 @@ export function Workspace({
       setMode("view");
     });
   }
+  async function archiveProject(project: Project) {
+    if (busy) return;
+    setActionError("");
+    setBusy(true);
+    try {
+      const { project: archived } = await api<{ project: Project }>(
+        `/users/${user.id}/projects/${project.id}`,
+        { method: "PATCH", body: JSON.stringify({ archived: true }) },
+      );
+      const remaining = (projects ?? []).filter((item) => item.id !== archived.id);
+      setProjects(remaining);
+      setArchivedProjects((current) => [
+        ...(current ?? []).filter((item) => item.id !== archived.id),
+        archived,
+      ]);
+      const next = remaining[0];
+      setSelectedId(next?.id ?? null);
+      savePreference(`project.${user.id}`, next?.id ?? null);
+      setTargetNoteId(null);
+      setMode(next ? "view" : "create");
+    } catch (reason) {
+      setActionError(`Couldn’t archive this project. ${errorMessage(reason)}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function restoreProject(project: Project) {
+    if (busy) return;
+    setActionError("");
+    setBusy(true);
+    try {
+      const { project: restored } = await api<{ project: Project }>(
+        `/users/${user.id}/projects/${project.id}`,
+        { method: "PATCH", body: JSON.stringify({ archived: false }) },
+      );
+      setProjects((current) => [
+        ...(current ?? []).filter((item) => item.id !== restored.id),
+        restored,
+      ]);
+      setArchivedProjects(
+        (current) => current?.filter((item) => item.id !== restored.id) ?? [],
+      );
+      setSelectedId(restored.id);
+      setTargetNoteId(null);
+      savePreference(`project.${user.id}`, restored.id);
+      setMode("view");
+    } catch (reason) {
+      setActionError(`Couldn’t restore this project. ${errorMessage(reason)}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   const selected = projects?.find((project) => project.id === selectedId);
 
   return (
@@ -184,10 +245,16 @@ export function Workspace({
         archivedProjectCount={archivedProjects?.length ?? 0}
       />
       <main className="workspace" id="main-content">
-        {error ? (
+        {actionError ? (
+          <div className="error-panel" role="alert">
+            <p>{actionError}</p>
+            <button onClick={() => setActionError("")}>Dismiss</button>
+          </div>
+        ) : null}
+        {loadError ? (
           <div className="error-panel" role="alert">
             <h1>Couldn’t open your projects.</h1>
-            <p>{error}</p>
+            <p>{loadError}</p>
             <button onClick={() => setAttempt((value) => value + 1)}>
               Try again
             </button>
@@ -205,31 +272,7 @@ export function Workspace({
           <ArchiveView
             projects={archivedProjects}
             busy={busy}
-            onRestore={(project) => {
-              setError("");
-              setBusy(true);
-              void api<{ project: Project }>(
-                `/users/${user.id}/projects/${project.id}`,
-                { method: "PATCH", body: JSON.stringify({ archived: false }) },
-              )
-                .then(async ({ project: restored }) => {
-                  const { projects: activeProjects } =
-                    await api<{ projects: Project[] }>(
-                      `/users/${user.id}/projects`,
-                    );
-                  setProjects(activeProjects);
-                  setArchivedProjects(
-                    (current) =>
-                      current?.filter((item) => item.id !== restored.id) ?? [],
-                  );
-                  setSelectedId(restored.id);
-                  setTargetNoteId(null);
-                  savePreference(`project.${user.id}`, restored.id);
-                  setMode("view");
-                })
-                .catch((reason: unknown) => setError(errorMessage(reason)))
-                .finally(() => setBusy(false));
-            }}
+            onRestore={(project) => void restoreProject(project)}
           />
         ) : mode === "create" || mode === "edit" ? (
           <ProjectForm
@@ -270,28 +313,7 @@ export function Workspace({
             onNoteCountChange={onNoteCountChange}
             onNoteMoved={onNoteMoved}
             onEdit={() => navigate(() => setMode("edit"))}
-            onArchive={() =>
-              navigate(() => {
-                setError("");
-                setBusy(true);
-                void api<{ project: Project }>(
-                  `/users/${user.id}/projects/${selected.id}`,
-                  { method: "PATCH", body: JSON.stringify({ archived: true }) },
-                )
-                  .then(({ project: archived }) => {
-                    const remaining = projects.filter((item) => item.id !== archived.id);
-                    setProjects(remaining);
-                    setArchivedProjects((current) => [...(current ?? []), archived]);
-                    const next = remaining[0];
-                    setSelectedId(next?.id ?? null);
-                    if (next) savePreference(`project.${user.id}`, next.id);
-                    setTargetNoteId(null);
-                    setMode(next ? "view" : "create");
-                  })
-                  .catch((reason: unknown) => setError(errorMessage(reason)))
-                  .finally(() => setBusy(false));
-              })
-            }
+            onArchive={() => navigate(() => void archiveProject(selected))}
           />
         ) : null}
       </main>

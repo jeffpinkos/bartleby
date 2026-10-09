@@ -729,3 +729,209 @@ test("sort notes by recent edits, preserve drafts, and remember the choice after
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   expect(errors).toEqual([]);
 });
+
+test("a stalled note save times out without losing the draft or retrying the write", async ({
+  page,
+  userName,
+}, testInfo) => {
+  await page.goto("/");
+  await page.getByPlaceholder("Your name", { exact: true }).fill(userName);
+  await page.getByRole("button", { name: "Create user", exact: true }).click();
+  await page.getByLabel("Project name", { exact: true }).fill("Working ideas");
+  await page
+    .getByRole("button", { name: "Create project", exact: true })
+    .click();
+  const composer = page.getByRole("form", { name: "New note", exact: true });
+  const title = composer.getByLabel("Title (optional)", { exact: true });
+  const body = composer.getByLabel("What’s on your mind?", { exact: true });
+  await title.fill("Still worth keeping");
+  await body.fill("A draft to keep.\n  Including its indentation.");
+
+  let saveRequests = 0;
+  page.on("request", (request) => {
+    if (
+      request.method() === "POST" &&
+      /^\/api\/users\/[^/]+\/projects\/[^/]+\/notes$/.test(
+        new URL(request.url()).pathname,
+      )
+    )
+      saveRequests += 1;
+  });
+  let releaseRequest: () => void = () => {};
+  const waiting = new Promise<void>((resolve) => {
+    releaseRequest = resolve;
+  });
+  let requestStarted: () => void = () => {};
+  const started = new Promise<void>((resolve) => {
+    requestStarted = resolve;
+  });
+  await page.route(
+    "**/api/users/*/projects/*/notes",
+    async (route) => {
+      requestStarted();
+      await waiting;
+      await route.fulfill({
+        status: 503,
+        json: { message: "This response arrived after the deadline." },
+      });
+    },
+    { times: 1 },
+  );
+  await page.clock.install();
+  try {
+    await composer.getByRole("button", { name: "Add note", exact: true }).click();
+    await started;
+    await expect(
+      composer.getByRole("button", { name: "Saving…", exact: true }),
+    ).toBeDisabled();
+    await expect(
+      page.getByRole("button", { name: "New project", exact: true }),
+    ).toBeDisabled();
+    await page.clock.fastForward(15_000);
+    await expect(composer.getByRole("alert")).toHaveText(
+      "Bartleby took too long to respond. Your changes may have been saved. Check the project before trying again.",
+    );
+    await expect(title).toHaveValue("Still worth keeping");
+    await expect(body).toHaveValue(
+      "A draft to keep.\n  Including its indentation.",
+    );
+    await expect(
+      composer.getByRole("button", { name: "Add note", exact: true }),
+    ).toBeEnabled();
+    await page.getByRole("button", { name: "New project", exact: true }).click();
+    await expect(
+      page.getByRole("dialog", { name: "Discard unsaved changes?" }),
+    ).toBeVisible();
+    await page.getByRole("button", { name: "Keep editing", exact: true }).click();
+    await expect(body).toHaveValue(
+      "A draft to keep.\n  Including its indentation.",
+    );
+    await page.clock.fastForward(30_000);
+    expect(saveRequests).toBe(1);
+    await expect(page.getByRole("article")).toHaveCount(0);
+    await page.screenshot({ path: testInfo.outputPath("save-timeout.png") });
+  } finally {
+    releaseRequest();
+    await page.unrouteAll({ behavior: "wait" });
+  }
+});
+
+test("failed archive and restore keep the project available for manual retry", async ({
+  page,
+  userName,
+}, testInfo) => {
+  let projectUpdates = 0;
+  page.on("request", (request) => {
+    if (
+      request.method() === "PATCH" &&
+      /^\/api\/users\/[^/]+\/projects\/[^/]+$/.test(
+        new URL(request.url()).pathname,
+      )
+    )
+      projectUpdates += 1;
+  });
+  await page.goto("/");
+  await page.getByPlaceholder("Your name", { exact: true }).fill(userName);
+  await page.getByRole("button", { name: "Create user", exact: true }).click();
+  await page.getByLabel("Project name", { exact: true }).fill("Completed ideas");
+  await page
+    .getByRole("button", { name: "Create project", exact: true })
+    .click();
+  const composer = page.getByRole("form", { name: "New note", exact: true });
+  await composer
+    .getByLabel("Title (optional)", { exact: true })
+    .fill("Keep this thought");
+  await composer
+    .getByLabel("What’s on your mind?", { exact: true })
+    .fill("The saved note survives failed project actions.");
+  await composer.getByRole("button", { name: "Add note", exact: true }).click();
+  const note = page.getByRole("article", { name: "Keep this thought", exact: true });
+  await expect(note).toBeVisible();
+
+  await page.route(
+    "**/api/users/*/projects/*",
+    (route) =>
+      route.fulfill({
+        status: 503,
+        json: { message: "Archive temporarily unavailable." },
+      }),
+    { times: 1 },
+  );
+  await page.getByRole("button", { name: "Archive project", exact: true }).click();
+  await expect(page.getByRole("alert")).toContainText(
+    "Archive temporarily unavailable.",
+  );
+  await expect(
+    page.getByRole("heading", { name: "Completed ideas", exact: true }),
+  ).toBeVisible();
+  await expect(note).toContainText("The saved note survives failed project actions.");
+  await expect(
+    page.getByRole("button", { name: "Archive project", exact: true }),
+  ).toBeEnabled();
+  await expect(
+    page.getByRole("button", { name: "Archived projects 0", exact: true }),
+  ).toBeEnabled();
+  expect(projectUpdates).toBe(1);
+  await page.screenshot({ path: testInfo.outputPath("archive-error.png") });
+  await page.getByRole("button", { name: "Archive project", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Archived projects 1", exact: true })
+    .click();
+  const archive = page.locator(".archive-list");
+  await expect(archive).toContainText("Completed ideas");
+  await expect(archive).toContainText("1 notes");
+  expect(projectUpdates).toBe(2);
+
+  let projectListReads = 0;
+  page.on("request", (request) => {
+    if (
+      request.method() === "GET" &&
+      /^\/api\/users\/[^/]+\/projects$/.test(
+        new URL(request.url()).pathname,
+      )
+    )
+      projectListReads += 1;
+  });
+  await page.route(
+    "**/api/users/*/projects/*",
+    (route) =>
+      route.fulfill({
+        status: 503,
+        json: { message: "Restore temporarily unavailable." },
+      }),
+    { times: 1 },
+  );
+  await page.getByRole("button", { name: "Restore", exact: true }).click();
+  await expect(page.getByRole("alert")).toContainText(
+    "Restore temporarily unavailable.",
+  );
+  await expect(
+    page.getByRole("heading", { name: "Archived projects", exact: true }),
+  ).toBeVisible();
+  await expect(archive).toContainText("Completed ideas");
+  await expect(archive).toContainText("1 notes");
+  await expect(
+    page.getByRole("button", { name: "Restore", exact: true }),
+  ).toBeEnabled();
+  await expect(
+    page.getByRole("button", { name: "Archived projects 1", exact: true }),
+  ).toBeEnabled();
+  expect(projectUpdates).toBe(3);
+  await page.screenshot({ path: testInfo.outputPath("restore-error.png") });
+  await page.getByRole("button", { name: "Restore", exact: true }).click();
+  await expect(
+    page.getByRole("heading", { name: "Completed ideas", exact: true }),
+  ).toBeVisible();
+  await expect(note).toContainText("The saved note survives failed project actions.");
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: "Archived projects 0", exact: true }),
+  ).toBeEnabled();
+  expect(projectUpdates).toBe(4);
+  expect(projectListReads).toBe(0);
+  await page.reload();
+  await expect(
+    page.getByRole("heading", { name: "Completed ideas", exact: true }),
+  ).toBeVisible();
+  await expect(note).toContainText("The saved note survives failed project actions.");
+});

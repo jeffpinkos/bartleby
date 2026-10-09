@@ -7,15 +7,15 @@
     "node": ">=24 <25"
   },
   "scripts": {
-    "dev": "concurrently --kill-others -n api,web \"npm:dev:server\" \"npm:dev:web\"",
-    "dev:server": "node --env-file=.env --import tsx --watch server/index.ts",
-    "dev:web": "vite",
-    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.server.json && tsc -p tsconfig.test.json",
-    "build": "npm run typecheck && vite build && tsc -p tsconfig.server.json",
-    "start": "node --env-file=.env dist/server/server/index.js",
-    "db:migrate": "node --env-file=.env --import tsx scripts/migrate.ts",
-    "test": "node --env-file=.env --import tsx --test server/*.test.ts",
-    "test:e2e": "npm run build && playwright test"
+    "dev": "node scripts/check-node.mjs && concurrently --kill-others -n api,web \"npm:dev:server\" \"npm:dev:web\"",
+    "dev:server": "node scripts/check-node.mjs && node --env-file=.env --import tsx --watch server/index.ts",
+    "dev:web": "node scripts/check-node.mjs && vite",
+    "typecheck": "node scripts/check-node.mjs && tsc --noEmit && tsc --noEmit -p tsconfig.server.json && tsc -p tsconfig.test.json",
+    "build": "node scripts/check-node.mjs && npm run typecheck && vite build && tsc -p tsconfig.server.json",
+    "start": "node scripts/check-node.mjs && node --env-file=.env dist/server/server/index.js",
+    "db:migrate": "node scripts/check-node.mjs && node --env-file=.env --import tsx scripts/migrate.ts",
+    "test": "node scripts/check-node.mjs && node --env-file=.env --import tsx --test server/*.test.ts",
+    "test:e2e": "node scripts/check-node.mjs && npm run build && playwright test"
   },
   "dependencies": {
     "@fastify/static": "^10.1.5",

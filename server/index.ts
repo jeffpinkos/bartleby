@@ -3,6 +3,7 @@ import { resolve } from "node:path";
 import pg from "pg";
 import fastifyStatic from "@fastify/static";
 import { buildApp } from "./app.js";
+import { checkMigrations } from "./check-migrations.js";
 
 if (!process.env.DATABASE_URL)
   throw new Error("DATABASE_URL is required. See .env.example.");
@@ -31,6 +32,7 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {
 
 try {
   await db.query("SELECT 1");
+  await checkMigrations(db);
   await app.listen({
     port: Number(process.env.PORT ?? 3001),
     host: "127.0.0.1",
