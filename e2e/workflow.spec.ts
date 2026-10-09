@@ -639,3 +639,93 @@ test("move a note between projects without losing its contents or an unfinished 
   ).toBe(true);
   expect(pageErrors).toEqual([]);
 });
+
+test("archive and restore a project without losing notes or silently discarding a draft", async ({
+  page, userName,
+}, testInfo) => {
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  page.on("console", (message) => {
+    if (message.type() === "error") errors.push(message.text());
+  });
+  await page.goto("/");
+  await expect(page).toHaveTitle("Bartleby — projects & notes");
+  await page.getByPlaceholder("Your name", { exact: true }).fill(userName);
+  await page.getByRole("button", { name: "Create user", exact: true }).click();
+  await page.getByLabel("Project name", { exact: true }).fill("Completed ideas");
+  await page.getByRole("button", { name: "Create project", exact: true }).click();
+  const composer = page.getByRole("form", { name: "New note", exact: true });
+  await composer.getByLabel("Title (optional)", { exact: true }).fill("Keep this thought");
+  await composer.getByLabel("What’s on your mind?", { exact: true }).fill("Saved text.\n  Keep the indentation.");
+  await composer.getByRole("button", { name: "Add note", exact: true }).click();
+  await expect(page.getByRole("article", { name: "Keep this thought" })).toBeVisible();
+  await composer.getByLabel("What’s on your mind?", { exact: true }).fill("Unfinished thought.");
+  await page.getByRole("button", { name: "Archive project", exact: true }).click();
+  await expect(page.getByRole("dialog", { name: "Discard unsaved changes?" })).toBeVisible();
+  await page.getByRole("button", { name: "Keep editing", exact: true }).click();
+  await expect(composer.getByLabel("What’s on your mind?", { exact: true })).toHaveValue("Unfinished thought.");
+  await page.getByRole("button", { name: "Archive project", exact: true }).click();
+  await page.getByRole("button", { name: "Discard changes", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Archived projects 1", exact: true })).toBeEnabled();
+  await page.reload();
+  await page.getByRole("button", { name: "Archived projects 1", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Archived projects", exact: true })).toBeVisible();
+  await expect(page.locator(".archive-list")).toContainText("Completed ideas");
+  await expect(page.locator(".project-navigation .project-list")).not.toContainText("Completed ideas");
+  await page.screenshot({ path: testInfo.outputPath("archive.png") });
+  await page.getByRole("button", { name: "Restore", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Completed ideas", exact: true })).toBeVisible();
+  await expect(page.getByRole("article").locator(".note-body")).toHaveText("Saved text.\n  Keep the indentation.");
+  await expect(page.getByRole("article")).toHaveCount(1);
+  await page.reload();
+  await expect(page.getByRole("heading", { name: "Completed ideas", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Archived projects 0", exact: true }).click();
+  await expect(page.getByText("No archived projects.", { exact: true })).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  expect(errors).toEqual([]);
+});
+
+test("sort notes by recent edits, preserve drafts, and remember the choice after reload", async ({
+  page, userName,
+}, testInfo) => {
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  page.on("console", (message) => {
+    if (message.type() === "error") errors.push(message.text());
+  });
+  await page.goto("/");
+  await page.getByPlaceholder("Your name", { exact: true }).fill(userName);
+  await page.getByRole("button", { name: "Create user", exact: true }).click();
+  await page.getByLabel("Project name", { exact: true }).fill("Working ideas");
+  await page.getByRole("button", { name: "Create project", exact: true }).click();
+  const composer = page.getByRole("form", { name: "New note", exact: true });
+  for (const title of ["Older idea", "Newer idea"]) {
+    await composer.getByLabel("Title (optional)", { exact: true }).fill(title);
+    await composer.getByLabel("What’s on your mind?", { exact: true }).fill(`Text for ${title}.`);
+    await composer.getByRole("button", { name: "Add note", exact: true }).click();
+    await expect(page.getByRole("article", { name: title, exact: true })).toBeVisible();
+  }
+  const titles = page.locator(".note-list h3");
+  const sort = page.getByRole("combobox", { name: "Sort notes", exact: true });
+  await expect(sort).toHaveValue("created");
+  await expect(titles).toHaveText(["Newer idea", "Older idea"]);
+  await composer.getByLabel("What’s on your mind?", { exact: true }).fill("A draft to keep.");
+  await sort.selectOption("updated");
+  await page.getByRole("article", { name: "Older idea", exact: true }).getByRole("button", { name: "Edit", exact: true }).click();
+  const editor = page.getByRole("form", { name: "Edit note", exact: true });
+  await editor.getByLabel("What’s on your mind?", { exact: true }).fill("Revisited the older idea.");
+  await editor.getByRole("button", { name: "Save changes", exact: true }).click();
+  await expect(titles).toHaveText(["Older idea", "Newer idea"]);
+  await expect(composer.getByLabel("What’s on your mind?", { exact: true })).toHaveValue("A draft to keep.");
+  await sort.selectOption("created");
+  await expect(titles).toHaveText(["Newer idea", "Older idea"]);
+  await sort.selectOption("updated");
+  await expect(titles).toHaveText(["Older idea", "Newer idea"]);
+  await composer.getByLabel("What’s on your mind?", { exact: true }).fill("");
+  await page.reload();
+  await expect(sort).toHaveValue("updated");
+  await expect(titles).toHaveText(["Older idea", "Newer idea"]);
+  await page.screenshot({ path: testInfo.outputPath("recently-edited.png"), fullPage: true });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  expect(errors).toEqual([]);
+});

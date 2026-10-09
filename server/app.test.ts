@@ -41,6 +41,62 @@ test("Bartleby API with real PostgreSQL", async (t) => {
     let project: Project;
     let note: Note;
 
+    await t.test("archive and restore preserve notes, scope lists, and keep exports complete", async () => {
+      const archiveOwner = await createUser("Archive regression owner");
+      const base = `/api/users/${archiveOwner.id}`;
+      const created = await request({
+        method: "POST", url: `${base}/projects`,
+        payload: { name: "Archive fixture", description: "Keep this context." },
+      });
+      assert.equal(created.statusCode, 201, created.body);
+      const original = created.json<{ project: Project }>().project;
+      assert.equal(original.archived, false);
+      const path = `${base}/projects/${original.id}`;
+      const added = await request({
+        method: "POST", url: `${path}/notes`,
+        payload: { title: "Archive needle", body: "Preserved archive content.\n  Indented." },
+      });
+      assert.equal(added.statusCode, 201, added.body);
+      const saved = added.json<{ note: Note }>().note;
+      const before = (await request({ url: path })).json<{ project: Project; notes: Note[] }>();
+      const list = async (suffix = "") => {
+        const response = await request({ url: `${base}/projects${suffix}` });
+        assert.equal(response.statusCode, 200, response.body);
+        return response.json<{ projects: Project[] }>().projects;
+      };
+      assert.deepEqual(await list(), [before.project]);
+      assert.deepEqual(await list("?archived=true"), []);
+      for (const archived of [true, false]) {
+        const denied = await request({
+          method: "PATCH", url: `/api/users/${other.id}/projects/${original.id}`,
+          payload: { archived },
+        });
+        assert.equal(denied.statusCode, 404);
+      }
+      for (const archived of ["true", 1, null]) {
+        assert.equal((await request({ method: "PATCH", url: path, payload: { archived } })).statusCode, 400);
+      }
+      assert.equal((await request({ url: `${base}/projects?archived=maybe` })).statusCode, 400);
+      for (const archived of [true, true, false, false]) {
+        const response = await request({ method: "PATCH", url: path, payload: { archived } });
+        assert.equal(response.statusCode, 200, response.body);
+        const expected = { ...before.project, archived };
+        assert.deepEqual(response.json<{ project: Project }>().project, expected);
+        assert.deepEqual(await list(), archived ? [] : [expected]);
+        assert.deepEqual(await list("?archived=false"), archived ? [] : [expected]);
+        assert.deepEqual(await list("?archived=true"), archived ? [expected] : []);
+        assert.deepEqual((await request({ url: path })).json(), { project: expected, notes: [saved] });
+        const search = await request({ url: `${base}/notes/search?q=Archive%20needle` });
+        assert.equal(search.statusCode, 200);
+        assert.equal(search.json<NoteSearchResponse>().notes.length, archived ? 0 : 1);
+        const exported = await request({ url: `${base}/export.md` });
+        assert.equal(exported.statusCode, 200);
+        assert.ok(exported.body.includes("Preserved archive content."));
+        const foreignList = await request({ url: `/api/users/${other.id}/projects?archived=true` });
+        assert.deepEqual(foreignList.json(), { projects: [] });
+      }
+    });
+
     await t.test("creates users and lists them", async () => {
       assert.equal(owner.name, "Bartleby test owner");
       const response = await request({ url: "/api/users" });

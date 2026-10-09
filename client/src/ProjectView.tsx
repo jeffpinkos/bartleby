@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { Note, NoteInput, Project } from "../../shared/types";
-import { api, errorMessage } from "./api";
+import { api, errorMessage, readPreference, savePreference } from "./api";
 import { NoteForm } from "./NoteForm";
 import { NoteItem } from "./NoteItem";
 import type { DraftChange } from "./useDraftGuard";
@@ -37,6 +37,9 @@ export function ProjectView({
   onBackToSearch?: () => void;
 }) {
   const [notes, setNotes] = useState<Note[] | null>(null);
+  const [sort, setSort] = useState(() =>
+    readPreference(`noteSort.${userId}`) === "updated" ? "updated" : "created",
+  );
   const [error, setError] = useState("");
   const [status, setStatus] = useState("");
   const [moveNotice, setMoveNotice] = useState("");
@@ -45,6 +48,14 @@ export function ProjectView({
   const [missingTarget, setMissingTarget] = useState(false);
   const path = `/users/${userId}/projects/${project.id}`;
   const destinations = projects.filter((item) => item.id !== project.id);
+  const sortedNotes = [...(notes ?? [])].sort((a, b) => {
+    const field = sort === "updated" ? "updatedAt" : "createdAt";
+    return (
+      Date.parse(b[field]) - Date.parse(a[field]) ||
+      Date.parse(b.createdAt) - Date.parse(a.createdAt) ||
+      (a.id < b.id ? 1 : a.id > b.id ? -1 : 0)
+    );
+  });
 
   useEffect(() => {
     if (moveNotice) moveNoticeRef.current?.focus();
@@ -204,11 +215,24 @@ export function ProjectView({
               <h2 id="notes-title">
                 Notes <span>{notes.length}</span>
               </h2>
-              <span className="sort-label">Newest first</span>
+              <label className="note-sort">
+                <span className="sr-only">Sort notes</span>
+                <select
+                  value={sort}
+                  disabled={busy}
+                  onChange={(event) => {
+                    setSort(event.target.value);
+                    savePreference(`noteSort.${userId}`, event.target.value);
+                  }}
+                >
+                  <option value="created">Newest first</option>
+                  <option value="updated">Recently edited</option>
+                </select>
+              </label>
             </div>
             {notes.length ? (
               <ul className="note-list">
-                {notes.map((note) => (
+                {sortedNotes.map((note) => (
                   <NoteItem
                     key={note.id}
                     note={note}

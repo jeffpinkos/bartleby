@@ -405,6 +405,7 @@ time {
 }
 .notes-heading {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 20px;
@@ -420,9 +421,10 @@ time {
   color: var(--muted);
   margin-left: 9px;
 }
-.sort-label {
+.note-sort select {
   font-size: 16px;
   color: var(--muted);
+  width: auto;
 }
 .note-item {
   padding: 15px 6px 24px;
