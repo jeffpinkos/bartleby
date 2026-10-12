@@ -46,6 +46,7 @@ export function ProjectView({
   const moveNoticeRef = useRef<HTMLDivElement>(null);
   const [attempt, setAttempt] = useState(0);
   const [missingTarget, setMissingTarget] = useState(false);
+  const [showMockSummary, setShowMockSummary] = useState(false);
   const path = `/users/${userId}/projects/${project.id}`;
   const destinations = projects.filter((item) => item.id !== project.id);
   const sortedNotes = [...(notes ?? [])].sort((a, b) => {
@@ -56,6 +57,16 @@ export function ProjectView({
       (a.id < b.id ? 1 : a.id > b.id ? -1 : 0)
     );
   });
+  const mockSummary = notes?.length
+    ? `This project has ${notes.length} note${notes.length === 1 ? "" : "s"}. The notes appear to focus on ${
+        notes
+          .slice(0, 3)
+          .map(
+            (note) => note.title || (note.body.split("\n")[0] ?? "").slice(0, 48),
+          )
+          .join(", ")
+      }${notes.length > 3 ? ", and a few more ideas" : ""}. A useful next step would be to review these ideas and decide which one deserves a smaller, concrete action.`
+    : "This project does not have any notes yet. Add an idea and I can help you think through what to do with it.";
 
   useEffect(() => {
     if (moveNotice) moveNoticeRef.current?.focus();
@@ -172,6 +183,14 @@ export function ProjectView({
           ) : null}
         </div>
         <div className="project-actions">
+          <button
+            className="small-button"
+            onClick={() => setShowMockSummary((current) => !current)}
+            disabled={busy}
+            aria-expanded={showMockSummary}
+          >
+            {showMockSummary ? "Hide AI demo" : "Summarize with AI"}
+          </button>
           <button className="small-button" onClick={onEdit} disabled={busy}>
             Edit project
           </button>
@@ -191,6 +210,21 @@ export function ProjectView({
         <p role="status">Opening your notes…</p>
       ) : (
         <>
+          {showMockSummary ? (
+            <aside className="ai-demo" aria-label="Mock AI summary">
+              <div className="ai-demo-heading">
+                <div>
+                  <p className="eyebrow">AI demo · mocked response</p>
+                  <h2>Project summary</h2>
+                </div>
+                <span className="ai-demo-badge">Preview</span>
+              </div>
+              <p>{mockSummary}</p>
+              <small>
+                This demo runs locally and sends nothing to an AI service.
+              </small>
+            </aside>
+          ) : null}
           {missingTarget ? (
             <p className="missing-note" role="status">
               This note is no longer in this project. Search again to find it.

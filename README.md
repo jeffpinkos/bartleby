@@ -29,6 +29,8 @@ Use **Archive project** beside the project heading to hide a completed project f
 
 Use **Sort notes** above the note list to choose **Newest first** (the default) or **Recently edited**. Recently edited uses the last saved time, so saving an edit moves that note to the top. The choice is remembered per user in this browser and applies across projects. Changing the sort preserves unfinished drafts. Moving a note preserves its dates and does not count as an edit.
 
+Use **Summarize with AI** in a project to open a clearly labeled mocked summary based on its saved notes. The demo runs locally and sends nothing to an AI service. Opening or hiding it preserves your unfinished note. It demonstrates a possible AI interaction; the summary is a deterministic preview rather than an AI-generated result.
+
 Use **Export Markdown** in the sidebar to download all of the selected user's active and archived projects, descriptions, notes, and timestamps in one `bartleby-export.md` file. Note bodies are placed in fenced text blocks to preserve line breaks and indentation.
 
 Requests have a 15-second deadline. A stalled save releases the controls and preserves the draft. If a write times out or loses its connection, it may already have been saved; check the project before trying again. Writes are never retried automatically. Archive/restore errors stay on the current screen so you can retry the action, and a successful restore uses the saved response directly.
@@ -113,7 +115,7 @@ Search requires a nonblank `q` of at most 200 characters and trims surrounding w
 
 ## Scope
 
-The application includes user creation, project creation/listing/editing, project detail, and note creation/editing/deletion/moving/search. AI, collaboration, roles, tags, project hierarchies, real-time synchronization, and elaborate authentication are outside this version. Add infrastructure and abstractions only in response to a concrete need.
+The application includes user creation, project creation/listing/editing, project detail, note creation/editing/deletion/moving/search, and a mocked AI summary preview. Live AI integration, collaboration, roles, tags, project hierarchies, real-time synchronization, and elaborate authentication are outside this version. Add infrastructure and abstractions only in response to a concrete need.
 
 ## License
 
